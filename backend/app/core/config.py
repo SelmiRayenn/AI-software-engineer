@@ -17,6 +17,7 @@ class Settings(BaseSettings):
         default="http://localhost:5173,http://127.0.0.1:5173",
         alias="BACKEND_CORS_ORIGINS",
     )
+    github_token: str | None = Field(default=None, alias="GITHUB_TOKEN")
     sandbox_image: str = Field(default="python:3.12-slim", alias="SANDBOX_IMAGE")
     sandbox_workspace_root: str | None = Field(default=None, alias="SANDBOX_WORKSPACE_ROOT")
     sandbox_memory_limit: str = Field(default="1g", alias="SANDBOX_MEMORY_LIMIT")

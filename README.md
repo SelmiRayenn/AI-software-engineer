@@ -79,6 +79,12 @@ python scripts/create_tables.py
 python scripts/seed_dev.py
 ```
 
+Load the small manual draft benchmark dataset from the repository root:
+
+```powershell
+python scripts/load_manual_benchmarks.py
+```
+
 Initial API surfaces:
 
 - `GET /api/v1/repositories`
@@ -88,6 +94,25 @@ Initial API surfaces:
 - `GET /api/v1/agent-runs`
 - `POST /api/v1/agent-runs`
 - `POST /sandbox/run`
+- `POST /github/preview-issue`
+- `POST /github/preview-pr`
+- `POST /benchmark-tasks/from-github`
+- `POST /benchmark-tasks/{task_id}/validate`
+- `POST /benchmark-tasks/{task_id}/mark-ready`
+- `GET /evaluation/benchmark-tasks/{task_id}/gold-patch`
+
+## Benchmark Task Lifecycle
+
+Benchmark tasks move through a small lifecycle:
+
+```text
+draft -> ready -> running -> completed
+                -> failed
+```
+
+Tasks can also be archived from stable end states. A task can only be marked `ready` after validation passes. Validation checks the repository URL, issue and pull request numbers, base commit, setup/test command lists, hidden gold patch, changed files, and known task status.
+
+The manual dataset in `benchmarks/manual_tasks.json` intentionally loads as draft tasks. These are curation starting points for small Python repositories and must be verified against exact historical issue, PR, base commit, and gold patch data before use.
 
 ## Current Scope
 
@@ -102,10 +127,11 @@ Included now:
 - Initial model-provider interface placeholders
 - SQLAlchemy models for repositories, benchmark tasks, patches, runs, events, test results, metrics, and reviews
 - Docker sandbox proof of concept for checked-out repositories and command execution
+- GitHub issue and pull request preview ingestion for public repositories
+- Historical benchmark task creation from GitHub issues and merged fix PRs
 
 Not included yet:
 
-- GitHub issue ingestion
 - Agent patch generation
 - Test execution engine
 - Human approval workflow

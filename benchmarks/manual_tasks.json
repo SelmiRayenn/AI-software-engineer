@@ -1,0 +1,65 @@
+[
+  {
+    "repository": {
+      "owner": "pallets",
+      "name": "markupsafe",
+      "url": "https://github.com/pallets/markupsafe",
+      "default_branch": "main",
+      "language": "Python"
+    },
+    "issue_number": 0,
+    "pull_request_number": null,
+    "issue_title": "Draft MarkupSafe benchmark candidate",
+    "issue_body": "Placeholder for a small historical MarkupSafe issue once the exact issue and fix PR are verified.",
+    "base_commit": "",
+    "fix_commit": null,
+    "linked_pr_url": null,
+    "setup_commands": ["python -m pip install -e ."],
+    "test_commands": ["pytest"],
+    "status": "draft",
+    "notes": "Draft only. Verify the real GitHub issue number, merged PR number, base commit, fix commit, changed files, and tests before marking ready.",
+    "gold_patch": null
+  },
+  {
+    "repository": {
+      "owner": "pallets",
+      "name": "itsdangerous",
+      "url": "https://github.com/pallets/itsdangerous",
+      "default_branch": "main",
+      "language": "Python"
+    },
+    "issue_number": 0,
+    "pull_request_number": null,
+    "issue_title": "Draft ItsDangerous benchmark candidate",
+    "issue_body": "Placeholder for a small historical ItsDangerous issue once the exact issue and fix PR are verified.",
+    "base_commit": "",
+    "fix_commit": null,
+    "linked_pr_url": null,
+    "setup_commands": ["python -m pip install -e ."],
+    "test_commands": ["pytest"],
+    "status": "draft",
+    "notes": "Draft only. Verify the real GitHub issue number, merged PR number, base commit, fix commit, changed files, and tests before marking ready.",
+    "gold_patch": null
+  },
+  {
+    "repository": {
+      "owner": "pytest-dev",
+      "name": "iniconfig",
+      "url": "https://github.com/pytest-dev/iniconfig",
+      "default_branch": "main",
+      "language": "Python"
+    },
+    "issue_number": 0,
+    "pull_request_number": null,
+    "issue_title": "Draft iniconfig benchmark candidate",
+    "issue_body": "Placeholder for a small historical iniconfig issue once the exact issue and fix PR are verified.",
+    "base_commit": "",
+    "fix_commit": null,
+    "linked_pr_url": null,
+    "setup_commands": ["python -m pip install -e ."],
+    "test_commands": ["pytest"],
+    "status": "draft",
+    "notes": "Draft only. Verify the real GitHub issue number, merged PR number, base commit, fix commit, changed files, and tests before marking ready.",
+    "gold_patch": null
+  }
+]

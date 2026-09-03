@@ -5,7 +5,7 @@ from typing import TYPE_CHECKING
 
 from sqlalchemy import ForeignKey, Integer, String, Text
 from sqlalchemy.orm import Mapped, mapped_column, relationship
-from sqlalchemy.types import Uuid
+from sqlalchemy.types import JSON, Uuid
 
 from app.db.base import Base
 from app.models.mixins import CreatedAtMixin, UUIDPrimaryKeyMixin
@@ -28,9 +28,18 @@ class BenchmarkTask(UUIDPrimaryKeyMixin, CreatedAtMixin, Base):
     issue_number: Mapped[int] = mapped_column(Integer, nullable=False)
     issue_title: Mapped[str] = mapped_column(String(500), nullable=False)
     issue_body: Mapped[str | None] = mapped_column(Text, nullable=True)
+    issue_comments: Mapped[list[dict[str, str | None]]] = mapped_column(
+        JSON,
+        default=list,
+        nullable=False,
+    )
+    pull_request_number: Mapped[int | None] = mapped_column(Integer, nullable=True)
     base_commit: Mapped[str] = mapped_column(String(64), nullable=False)
     fix_commit: Mapped[str | None] = mapped_column(String(64), nullable=True)
     linked_pr_url: Mapped[str | None] = mapped_column(String(2048), nullable=True)
+    setup_commands: Mapped[list[str]] = mapped_column(JSON, default=list, nullable=False)
+    test_commands: Mapped[list[str]] = mapped_column(JSON, default=list, nullable=False)
+    notes: Mapped[str | None] = mapped_column(Text, nullable=True)
     status: Mapped[str] = mapped_column(String(50), default="draft", index=True, nullable=False)
 
     repository: Mapped["Repository"] = relationship(back_populates="benchmark_tasks")

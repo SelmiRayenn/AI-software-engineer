@@ -40,9 +40,14 @@ def seed() -> None:
                     "The divide function raises an unhelpful exception when the divisor is zero. "
                     "Return a clear validation error instead."
                 ),
+                issue_comments=[],
+                pull_request_number=43,
                 base_commit="1111111111111111111111111111111111111111",
                 fix_commit="2222222222222222222222222222222222222222",
                 linked_pr_url="https://github.com/example/calculator/pull/43",
+                setup_commands=["python -m pip install -e ."],
+                test_commands=["pytest"],
+                notes="Seed task for local development.",
                 status="ready",
             )
             db.add(task)

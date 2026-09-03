@@ -19,6 +19,10 @@ The FastAPI service owns platform orchestration. Its future responsibilities inc
 - Storing patch, test, approval, and metric results.
 - Serving dashboard APIs.
 
+The current GitHub ingestion boundary is read-only. It previews public repository, issue, pull request, file, and commit metadata through the GitHub REST API, with optional `GITHUB_TOKEN` support for higher rate limits.
+
+Benchmark task creation uses a separate service layer above GitHub ingestion. It stores agent-visible task context on `benchmark_tasks` and stores hidden solution data on `gold_patches`, which is exposed only through evaluation/admin routes.
+
 ### PostgreSQL
 
 PostgreSQL is the source of truth for benchmark cases, gold patches, agent runs, generated patches, agent events, test outcomes, approval decisions, and evaluation metrics.

@@ -28,6 +28,7 @@ services:
       DATABASE_URL: ${DATABASE_URL:-postgresql+psycopg://benchmark:benchmark@postgres:5432/agent_benchmark}
       DATABASE_AUTO_CREATE_TABLES: ${DATABASE_AUTO_CREATE_TABLES:-true}
       BACKEND_CORS_ORIGINS: ${BACKEND_CORS_ORIGINS:-http://localhost:5173,http://127.0.0.1:5173}
+      GITHUB_TOKEN: ${GITHUB_TOKEN:-}
       SANDBOX_IMAGE: ${SANDBOX_IMAGE:-python:3.12-slim}
       SANDBOX_WORKSPACE_ROOT: /sandbox-workspaces
       SANDBOX_MEMORY_LIMIT: ${SANDBOX_MEMORY_LIMIT:-1g}

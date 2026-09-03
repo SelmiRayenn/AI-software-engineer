@@ -4,6 +4,8 @@ __pycache__/
 .pytest_cache/
 .ruff_cache/
 .mypy_cache/
+.coverage
+htmlcov/
 .venv/
 venv/
 *.egg-info/
@@ -22,6 +24,9 @@ dist/
 # Docker and local data
 postgres_data/
 sandbox-workspaces/
+*.db
+*.sqlite
+*.sqlite3
 
 # Editor and OS files
 .idea/

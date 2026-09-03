@@ -1,8 +1,25 @@
 from app.schemas.agent_event import AgentEventCreate, AgentEventRead
 from app.schemas.agent_run import AgentRunCreate, AgentRunRead
-from app.schemas.benchmark_task import BenchmarkTaskCreate, BenchmarkTaskRead
+from app.schemas.benchmark_task import (
+    AgentVisibleBenchmarkTaskRead,
+    AgentVisibleIssueComment,
+    BenchmarkTaskCreate,
+    BenchmarkTaskFromGitHubRequest,
+    BenchmarkTaskRead,
+    BenchmarkTaskValidationResult,
+)
 from app.schemas.evaluation_metric import EvaluationMetricCreate, EvaluationMetricRead
 from app.schemas.generated_patch import GeneratedPatchCreate, GeneratedPatchRead
+from app.schemas.github import (
+    GitHubBenchmarkTaskHint,
+    GitHubIssuePreview,
+    GitHubIssuePreviewRequest,
+    GitHubIssuePreviewResponse,
+    GitHubPullRequestPreview,
+    GitHubPullRequestPreviewRequest,
+    GitHubPullRequestPreviewResponse,
+    GitHubRepositoryPreview,
+)
 from app.schemas.gold_patch import GoldPatchCreate, GoldPatchRead
 from app.schemas.health import HealthResponse
 from app.schemas.human_review import HumanReviewCreate, HumanReviewRead
@@ -15,12 +32,24 @@ __all__ = [
     "AgentEventRead",
     "AgentRunCreate",
     "AgentRunRead",
+    "AgentVisibleBenchmarkTaskRead",
+    "AgentVisibleIssueComment",
     "BenchmarkTaskCreate",
+    "BenchmarkTaskFromGitHubRequest",
     "BenchmarkTaskRead",
+    "BenchmarkTaskValidationResult",
     "EvaluationMetricCreate",
     "EvaluationMetricRead",
     "GeneratedPatchCreate",
     "GeneratedPatchRead",
+    "GitHubBenchmarkTaskHint",
+    "GitHubIssuePreview",
+    "GitHubIssuePreviewRequest",
+    "GitHubIssuePreviewResponse",
+    "GitHubPullRequestPreview",
+    "GitHubPullRequestPreviewRequest",
+    "GitHubPullRequestPreviewResponse",
+    "GitHubRepositoryPreview",
     "GoldPatchCreate",
     "GoldPatchRead",
     "HealthResponse",

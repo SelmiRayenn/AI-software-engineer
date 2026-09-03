@@ -5,7 +5,10 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.api.routes.agent_runs import router as agent_runs_router
+from app.api.routes.benchmark_task_ingestion import evaluation_router
+from app.api.routes.benchmark_task_ingestion import router as benchmark_task_ingestion_router
 from app.api.routes.benchmark_tasks import router as benchmark_tasks_router
+from app.api.routes.github import router as github_router
 from app.api.routes.health import router as health_router
 from app.api.routes.repositories import router as repositories_router
 from app.api.routes.sandbox import router as sandbox_router
@@ -41,6 +44,9 @@ def create_app() -> FastAPI:
     app.include_router(benchmark_tasks_router, prefix="/api/v1")
     app.include_router(agent_runs_router, prefix="/api/v1")
     app.include_router(sandbox_router)
+    app.include_router(github_router)
+    app.include_router(benchmark_task_ingestion_router)
+    app.include_router(evaluation_router)
     return app
 
 
