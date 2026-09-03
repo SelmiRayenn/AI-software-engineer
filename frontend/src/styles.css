@@ -1,0 +1,278 @@
+:root {
+  color: #17202a;
+  background: #f6f7f9;
+  font-family:
+    Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  font-synthesis: none;
+  text-rendering: optimizeLegibility;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  min-width: 320px;
+  min-height: 100vh;
+}
+
+a {
+  color: inherit;
+  text-decoration: none;
+}
+
+.app-shell {
+  display: grid;
+  grid-template-columns: 280px minmax(0, 1fr);
+  min-height: 100vh;
+}
+
+.sidebar {
+  display: flex;
+  flex-direction: column;
+  gap: 40px;
+  padding: 28px;
+  color: #f7fafc;
+  background: #17202a;
+  border-right: 1px solid #263544;
+}
+
+.brand {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+}
+
+.brand-mark {
+  display: grid;
+  place-items: center;
+  width: 44px;
+  height: 44px;
+  border-radius: 8px;
+  color: #17202a;
+  background: #6ee7b7;
+  font-weight: 800;
+}
+
+.brand h1,
+.dashboard-header h2,
+.section-heading h3 {
+  margin: 0;
+  letter-spacing: 0;
+}
+
+.brand h1 {
+  font-size: 21px;
+  line-height: 1.15;
+}
+
+.eyebrow {
+  margin: 0 0 6px;
+  color: #6b7a90;
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0;
+  text-transform: uppercase;
+}
+
+.sidebar .eyebrow {
+  color: #a9b7c6;
+}
+
+.nav-links {
+  display: grid;
+  gap: 8px;
+}
+
+.nav-links a {
+  padding: 11px 12px;
+  border-radius: 8px;
+  color: #d7dee7;
+  font-weight: 650;
+}
+
+.nav-links a:hover,
+.nav-links a[aria-current="page"] {
+  color: #ffffff;
+  background: #253443;
+}
+
+.dashboard {
+  display: grid;
+  align-content: start;
+  gap: 28px;
+  padding: 36px;
+}
+
+.dashboard-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 24px;
+}
+
+.dashboard-header h2 {
+  max-width: 760px;
+  font-size: 52px;
+  line-height: 1.02;
+}
+
+.status-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 140px;
+  padding: 10px 12px;
+  border: 1px solid #d7dee7;
+  border-radius: 999px;
+  background: #ffffff;
+  color: #435368;
+  font-size: 14px;
+  font-weight: 700;
+  text-transform: capitalize;
+}
+
+.status-pill span {
+  width: 10px;
+  height: 10px;
+  border-radius: 999px;
+  background: #9aa8b6;
+}
+
+.status-ok span {
+  background: #22c55e;
+}
+
+.status-offline span {
+  background: #ef4444;
+}
+
+.summary-grid,
+.stage-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 16px;
+}
+
+.summary-grid article,
+.stage-card {
+  min-height: 154px;
+  padding: 20px;
+  border: 1px solid #dde3ea;
+  border-radius: 8px;
+  background: #ffffff;
+  box-shadow: 0 18px 40px rgb(20 31 43 / 7%);
+}
+
+.summary-grid p,
+.summary-grid span,
+.stage-card p,
+.section-heading span {
+  color: #617084;
+}
+
+.summary-grid p {
+  margin: 0 0 18px;
+  font-weight: 700;
+}
+
+.summary-grid strong {
+  display: block;
+  margin-bottom: 10px;
+  font-size: 42px;
+  line-height: 1;
+}
+
+.summary-grid span {
+  font-size: 14px;
+}
+
+.pipeline {
+  display: grid;
+  gap: 16px;
+}
+
+.section-heading {
+  display: flex;
+  align-items: end;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.section-heading h3 {
+  font-size: 24px;
+}
+
+.section-heading span {
+  font-size: 14px;
+  font-weight: 700;
+}
+
+.stage-topline {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  margin-bottom: 18px;
+}
+
+.stage-topline span {
+  color: #17202a;
+  font-weight: 800;
+}
+
+.stage-topline strong {
+  padding: 6px 8px;
+  border-radius: 6px;
+  color: #0f5132;
+  background: #d1fae5;
+  font-size: 12px;
+}
+
+.stage-card p {
+  margin: 0;
+  line-height: 1.55;
+}
+
+@media (max-width: 980px) {
+  .app-shell {
+    grid-template-columns: 1fr;
+  }
+
+  .sidebar {
+    gap: 20px;
+  }
+
+  .nav-links {
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+  }
+
+  .summary-grid,
+  .stage-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 620px) {
+  .sidebar,
+  .dashboard {
+    padding: 22px;
+  }
+
+  .dashboard-header,
+  .section-heading {
+    align-items: start;
+    flex-direction: column;
+  }
+
+  .dashboard-header h2 {
+    font-size: 34px;
+  }
+
+  .nav-links,
+  .summary-grid,
+  .stage-grid {
+    grid-template-columns: 1fr;
+  }
+}
