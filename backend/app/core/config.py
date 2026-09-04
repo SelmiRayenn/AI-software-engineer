@@ -41,6 +41,9 @@ class Settings(BaseSettings):
     sandbox_network_enabled: bool = Field(default=False, alias="SANDBOX_NETWORK_ENABLED")
     sandbox_pull_image: bool = Field(default=True, alias="SANDBOX_PULL_IMAGE")
     sandbox_max_log_bytes: int = Field(default=200_000, ge=1024, alias="SANDBOX_MAX_LOG_BYTES")
+    openai_api_key: str | None = Field(default=None, alias="OPENAI_API_KEY")
+    anthropic_api_key: str | None = Field(default=None, alias="ANTHROPIC_API_KEY")
+    local_model_endpoint: str | None = Field(default=None, alias="LOCAL_MODEL_ENDPOINT")
 
     model_config = SettingsConfigDict(env_file=".env", extra="ignore")
 

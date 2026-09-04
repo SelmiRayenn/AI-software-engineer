@@ -4,6 +4,7 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
+from app.api.routes.agent_run_orchestration import router as agent_run_orchestration_router
 from app.api.routes.agent_runs import router as agent_runs_router
 from app.api.routes.benchmark_task_ingestion import evaluation_router
 from app.api.routes.benchmark_task_ingestion import router as benchmark_task_ingestion_router
@@ -44,6 +45,7 @@ def create_app() -> FastAPI:
     app.include_router(benchmark_tasks_router, prefix="/api/v1")
     app.include_router(agent_runs_router, prefix="/api/v1")
     app.include_router(sandbox_router)
+    app.include_router(agent_run_orchestration_router)
     app.include_router(github_router)
     app.include_router(benchmark_task_ingestion_router)
     app.include_router(evaluation_router)

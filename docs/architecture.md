@@ -43,9 +43,13 @@ The initial schema includes:
 
 The sandbox layer will isolate each benchmark run. A run should clone or mount the target repository, check out the historical base commit, apply the generated patch, execute the declared test command, and export logs plus artifacts.
 
+### Controlled Agent Tools
+
+Agents do not get unrestricted shell access. The backend exposes an internal tool layer for repository inspection and edits inside a prepared sandbox workspace: file listing, code search, file reads/writes, allowed test commands, diff inspection, and patch submission. Each tool call enforces workspace path boundaries and writes an `agent_tool_call` event to `agent_events`.
+
 ### Agent Provider Abstraction
 
-The backend contains an initial provider interface boundary. OpenAI, Anthropic, and local model adapters can later implement the same `ModelProvider` contract without changing benchmark orchestration code.
+The backend contains a provider interface boundary under `app.model_providers`. Mock, OpenAI, Anthropic, and local adapters share the same `ModelProvider` contract and return normalized content, tool calls, token usage, cost estimates, latency, and optional raw provider responses.
 
 ## Evaluation Flow
 

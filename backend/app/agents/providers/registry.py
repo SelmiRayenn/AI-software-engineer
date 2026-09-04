@@ -1,4 +1,4 @@
-from app.agents.providers.base import ModelProvider
+from app.model_providers import ModelProvider
 
 
 class ProviderRegistry:
@@ -6,7 +6,7 @@ class ProviderRegistry:
         self._providers: dict[str, ModelProvider] = {}
 
     def register(self, provider: ModelProvider) -> None:
-        self._providers[provider.name] = provider
+        self._providers[provider.provider_name] = provider
 
     def get(self, name: str) -> ModelProvider:
         return self._providers[name]

@@ -99,6 +99,7 @@ Initial API surfaces:
 - `POST /benchmark-tasks/from-github`
 - `POST /benchmark-tasks/{task_id}/validate`
 - `POST /benchmark-tasks/{task_id}/mark-ready`
+- `POST /agent-runs/{benchmark_task_id}/start`
 - `GET /evaluation/benchmark-tasks/{task_id}/gold-patch`
 
 ## Benchmark Task Lifecycle
@@ -129,6 +130,8 @@ Included now:
 - Docker sandbox proof of concept for checked-out repositories and command execution
 - GitHub issue and pull request preview ingestion for public repositories
 - Historical benchmark task creation from GitHub issues and merged fix PRs
+- Swappable model provider abstraction for mock, OpenAI, Anthropic, and local providers
+- Scripted agent run orchestrator that uses controlled tools and a mock provider
 
 Not included yet:
 

@@ -1,22 +1,20 @@
-from app.agents.providers.base import AgentPatch, AgentRequest, ModelProvider
-from app.agents.providers.registry import ProviderRegistry
-from app.model_providers import (
+from app.model_providers.base import (
+    ModelMessage,
+    ModelProvider,
+    ModelProviderConfigError,
+    ModelProviderResponse,
+    ModelToolCall,
+    ToolDefinition,
+)
+from app.model_providers.factory import ModelProviderFactory, create_model_provider
+from app.model_providers.providers import (
     AnthropicProvider,
     LocalModelProvider,
     MockModelProvider,
-    ModelMessage,
-    ModelProviderConfigError,
-    ModelProviderFactory,
-    ModelProviderResponse,
-    ModelToolCall,
     OpenAIProvider,
-    ToolDefinition,
-    create_model_provider,
 )
 
 __all__ = [
-    "AgentPatch",
-    "AgentRequest",
     "AnthropicProvider",
     "LocalModelProvider",
     "MockModelProvider",
@@ -27,7 +25,6 @@ __all__ = [
     "ModelProviderResponse",
     "ModelToolCall",
     "OpenAIProvider",
-    "ProviderRegistry",
     "ToolDefinition",
     "create_model_provider",
 ]

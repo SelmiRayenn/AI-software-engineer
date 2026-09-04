@@ -1,5 +1,8 @@
 from dataclasses import dataclass
-from typing import Protocol
+
+from app.model_providers import ModelProvider as BaseModelProvider
+
+type ModelProvider = BaseModelProvider
 
 
 @dataclass(frozen=True)
@@ -14,10 +17,3 @@ class AgentRequest:
 class AgentPatch:
     diff: str
     summary: str
-
-
-class ModelProvider(Protocol):
-    name: str
-
-    async def generate_patch(self, request: AgentRequest) -> AgentPatch:
-        """Generate a candidate patch for a benchmark issue."""
