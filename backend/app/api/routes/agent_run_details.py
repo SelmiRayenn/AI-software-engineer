@@ -2,11 +2,15 @@ from typing import Annotated
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException
+from pydantic import ValidationError
+from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.db.session import get_db
-from app.models import AgentRun
+from app.models import AgentEvent, AgentRun
 from app.schemas.agent_run import (
+    AgentPromptPreview,
+    AgentRunConfig,
     AgentRunDetailBenchmarkTask,
     AgentRunDetailRead,
     AgentRunDetailRepository,
@@ -27,6 +31,7 @@ def get_agent_run_detail(run_id: UUID, db: DbSession = None) -> AgentRunDetailRe
     repository = task.repository
     generated_patch = run.generated_patch
     metric = run.evaluation_metric
+    run_config, prompt_preview = _stored_run_context(db, run.id)
 
     return AgentRunDetailRead(
         id=run.id,
@@ -64,4 +69,31 @@ def get_agent_run_detail(run_id: UUID, db: DbSession = None) -> AgentRunDetailRe
             if metric
             else None
         ),
+        run_config=run_config,
+        prompt_preview=prompt_preview,
     )
+
+
+def _stored_run_context(
+    db: Session,
+    run_id: UUID,
+) -> tuple[AgentRunConfig | None, AgentPromptPreview | None]:
+    event = db.scalar(
+        select(AgentEvent)
+        .where(
+            AgentEvent.agent_run_id == run_id,
+            AgentEvent.event_type == "agent_run_configured",
+        )
+        .order_by(AgentEvent.created_at.desc())
+        .limit(1)
+    )
+    if event is None:
+        return None, None
+
+    payload = event.payload_json or {}
+    try:
+        run_config = AgentRunConfig.model_validate(payload.get("config"))
+        prompt_preview = AgentPromptPreview.model_validate(payload.get("prompt_preview"))
+    except ValidationError:
+        return None, None
+    return run_config, prompt_preview

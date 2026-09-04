@@ -78,7 +78,9 @@ The GitHub benchmark creation endpoint turns a real issue plus merged fix PR int
 
 Benchmark tasks must pass validation before they can be marked ready for agent use. The validation endpoint checks repository metadata, issue and PR numbers, base commit, setup/test commands, hidden gold data, changed files, and task lifecycle status.
 
-The agent run start endpoint executes the current scripted orchestrator skeleton with a mock provider and controlled workspace tools. See `docs/agent-runs.md` from the repository root.
+The agent run start endpoint executes an iterative model/tool loop through controlled workspace
+tools. The mock provider drives deterministic local tests without an external model call. See
+`docs/agent-runs.md` and `docs/agent-loop.md` from the repository root.
 
 The patch endpoints inspect active agent-run workspaces, apply safe unified diffs, and store generated patches separately from hidden gold solutions. See `docs/patch-management.md` from the repository root.
 

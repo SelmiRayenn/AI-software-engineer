@@ -71,6 +71,27 @@ export interface AgentRunDetail {
   review_status: string | null;
   changed_files: string[];
   metric_summary: AgentRunMetricSummary | null;
+  run_config: AgentRunConfig | null;
+  prompt_preview: AgentPromptPreview | null;
+}
+
+export interface AgentRunConfig {
+  model_provider: string;
+  model_name: string | null;
+  max_steps: number;
+  max_tool_errors: number;
+  command_timeout_seconds: number;
+  include_issue_comments: boolean;
+  enable_test_tool: boolean;
+  run_mode: "scripted" | "tool_loop";
+}
+
+export interface AgentPromptPreview {
+  system_prompt: string;
+  developer_safety_prompt: string;
+  issue_context_prompt: string;
+  tool_use_instructions: string;
+  patch_submission_instructions: string;
 }
 
 export interface PatchSizeStats {

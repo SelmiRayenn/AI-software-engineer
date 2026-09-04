@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import re
 import subprocess
 import time
 from collections.abc import Callable, Sequence
@@ -499,13 +500,16 @@ def _sanitize_for_log(value: Any) -> Any:
     if isinstance(value, dict):
         sanitized = {}
         for key, nested_value in value.items():
+            if _is_sensitive_key(str(key)):
+                sanitized[key] = "[REDACTED]"
+                continue
             if key in {"content", "patch_text", "stdout", "stderr"} and isinstance(
                 nested_value,
                 str,
             ):
                 sanitized[key] = {
                     "size_bytes": len(nested_value.encode("utf-8")),
-                    "preview": nested_value[:200],
+                    "preview": _redact_secret_patterns(nested_value[:200]),
                 }
             else:
                 sanitized[key] = _sanitize_for_log(nested_value)
@@ -513,8 +517,39 @@ def _sanitize_for_log(value: Any) -> Any:
     if isinstance(value, list):
         return [_sanitize_for_log(item) for item in value[:50]]
     if isinstance(value, str) and len(value) > 500:
-        return {"size_bytes": len(value.encode("utf-8")), "preview": value[:200]}
+        return {
+            "size_bytes": len(value.encode("utf-8")),
+            "preview": _redact_secret_patterns(value[:200]),
+        }
+    if isinstance(value, str):
+        return _redact_secret_patterns(value)
     return value
+
+
+def _is_sensitive_key(key: str) -> bool:
+    normalized = key.lower().replace("-", "_")
+    return (
+        normalized in {"token", "access_token", "refresh_token", "auth_token"}
+        or "api_key" in normalized
+        or "apikey" in normalized
+        or "password" in normalized
+        or "secret" in normalized
+        or "authorization" in normalized
+    )
+
+
+def _redact_secret_patterns(value: str) -> str:
+    redacted = re.sub(
+        r"(?i)\b(bearer\s+)[A-Za-z0-9._~+/=-]+",
+        r"\1[REDACTED]",
+        value,
+    )
+    redacted = re.sub(
+        r"\b(?:sk-[A-Za-z0-9_-]{8,}|gh[pousr]_[A-Za-z0-9_]{8,})\b",
+        "[REDACTED]",
+        redacted,
+    )
+    return redacted
 
 
 def _unique_limited(values: list[str], limit: int = 100) -> list[str]:

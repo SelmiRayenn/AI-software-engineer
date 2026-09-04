@@ -1,18 +1,19 @@
 from __future__ import annotations
 
 import subprocess
-import time
 import uuid
 from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any, Self
+from typing import Self
 
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app import crud
+from app.agents.loop import AgentLoop, registered_tool_names
+from app.agents.prompts import render_agent_prompts
 from app.agents.tools import AgentWorkspaceTools, ToolError
 from app.core.run_statuses import (
     RUN_STATUS_COMPLETED,
@@ -22,17 +23,16 @@ from app.core.run_statuses import (
 )
 from app.core.task_statuses import TASK_STATUS_READY
 from app.evaluation import EvaluationService
-from app.model_providers import (
-    ModelMessage,
-    ModelProvider,
-    ModelProviderFactory,
-    ModelProviderResponse,
-    ToolDefinition,
-)
-from app.models import AgentEvent, AgentRun, BenchmarkTask, GeneratedPatch, Repository
+from app.model_providers import ModelProvider, ModelProviderFactory
+from app.models import AgentEvent, AgentRun, BenchmarkTask, GeneratedPatch
 from app.sandbox import SandboxWorkspaceManager, SandboxWorkspaceSafetyError
 from app.sandbox.workspace import SandboxWorkspaceMetadata
-from app.schemas.agent_run import AgentRunStartRequest, AgentRunStartResponse, AgentRunTraceStep
+from app.schemas.agent_run import (
+    AgentRunConfig,
+    AgentRunStartRequest,
+    AgentRunStartResponse,
+    AgentRunTraceStep,
+)
 from app.test_execution import TestExecutionError, TestExecutionService
 
 
@@ -45,10 +45,6 @@ class BenchmarkTaskNotReadyError(AgentRunStartError):
 
 
 class WorkspacePreparationError(AgentRunStartError):
-    pass
-
-
-class MaxStepsExceededError(AgentRunStartError):
     pass
 
 
@@ -144,6 +140,28 @@ class AgentRunOrchestrator:
             model_name=request.model_name,
         )
         run = self._create_agent_run(task=task, provider=provider)
+        run_config = AgentRunConfig.model_validate(
+            {
+                **request.model_dump(),
+                "model_provider": provider.provider_name,
+                "model_name": provider.model_name,
+            }
+        )
+        prompts = render_agent_prompts(
+            task=task,
+            repository=repository,
+            allowed_tools=registered_tool_names(
+                enable_test_tool=run_config.enable_test_tool
+            ),
+            configured_test_commands=list(task.test_commands or []),
+            max_steps=run_config.max_steps,
+            max_tool_errors=run_config.max_tool_errors,
+            command_timeout_seconds=run_config.command_timeout_seconds,
+            include_issue_comments=run_config.include_issue_comments,
+            enable_test_tool=run_config.enable_test_tool,
+            run_mode=run_config.run_mode,
+        )
+        prompt_preview = prompts.redacted_preview()
         steps: list[AgentRunTraceStep] = []
         generated_patch_id: uuid.UUID | None = None
         changed_files: list[str] = []
@@ -153,19 +171,23 @@ class AgentRunOrchestrator:
             self._mark_run_status(run, RUN_STATUS_RUNNING)
             self._log_event(
                 run,
+                "agent_run_configured",
+                {
+                    "config": run_config.model_dump(mode="json"),
+                    "prompt_preview": prompt_preview,
+                },
+            )
+            self._log_event(
+                run,
                 "agent_run_started",
                 {
                     "benchmark_task_id": str(task.id),
                     "model_provider": provider.provider_name,
                     "model_name": provider.model_name,
                     "max_steps": request.max_steps,
+                    "max_tool_errors": request.max_tool_errors,
                 },
             )
-            provider_response = provider.generate_response(
-                self._agent_visible_messages(task, repository),
-                tools=_controlled_tool_definitions(),
-            )
-            self._log_model_response(run, provider, provider_response)
 
             with self._workspace_preparer.prepare(
                 repository_url=repository.url,
@@ -198,31 +220,23 @@ class AgentRunOrchestrator:
                 if not setup_result.passed:
                     raise AgentRunStartError("Setup phase failed.")
                 test_executor.run_baseline_tests(run_setup=False)
-                listed_files = self._run_step(
-                    steps,
-                    request.max_steps,
-                    "list_files",
-                    lambda: tools.list_files(),
-                )
-                read_target = _select_read_target(listed_files.files)
-                self._run_step(
-                    steps,
-                    request.max_steps,
-                    "read_file",
-                    lambda: tools.read_file(read_target),
-                )
-                self._run_step(
-                    steps,
-                    request.max_steps,
-                    "get_diff",
-                    lambda: tools.get_diff(),
-                )
-                submitted_patch = self._run_step(
-                    steps,
-                    request.max_steps,
-                    "submit_patch",
-                    lambda: tools.submit_patch(),
-                )
+                loop_result = AgentLoop(
+                    db=self._db,
+                    agent_run=run,
+                    benchmark_task=task,
+                    repository=repository,
+                    provider=provider,
+                    tools=tools,
+                    config=run_config,
+                    prompts=prompts,
+                ).run()
+                steps = loop_result.steps
+                submitted_patch = loop_result.submitted_patch
+                if submitted_patch is None:
+                    raise AgentRunStartError(
+                        loop_result.error_message
+                        or f"Agent loop stopped without a patch: {loop_result.stop_reason}."
+                    )
                 generated_patch_id = submitted_patch.generated_patch_id
                 changed_files = submitted_patch.changed_files
                 post_patch_result = test_executor.run_post_patch_tests()
@@ -267,6 +281,8 @@ class AgentRunOrchestrator:
             changed_files=changed_files,
             patch_review_status=run.patch_review_status,
             error_message=error_message,
+            run_config=run_config,
+            prompt_preview=prompt_preview,
         )
 
     def _create_agent_run(self, *, task: BenchmarkTask, provider: ModelProvider) -> AgentRun:
@@ -296,43 +312,7 @@ class AgentRunOrchestrator:
         self._db.commit()
         self._db.refresh(run)
 
-    def _run_step(
-        self,
-        steps: list[AgentRunTraceStep],
-        max_steps: int,
-        step_name: str,
-        operation: Callable[[], Any],
-    ) -> Any:
-        if len(steps) >= max_steps:
-            raise MaxStepsExceededError(f"Maximum step limit of {max_steps} reached.")
-
-        started = time.perf_counter()
-        try:
-            result = operation()
-        except Exception as exc:
-            steps.append(
-                AgentRunTraceStep(
-                    step_name=step_name,
-                    success=False,
-                    duration_seconds=time.perf_counter() - started,
-                    error_message=str(exc),
-                )
-            )
-            raise
-
-        steps.append(
-            AgentRunTraceStep(
-                step_name=step_name,
-                success=True,
-                duration_seconds=time.perf_counter() - started,
-                summary=_step_summary(result),
-                files_read=_step_files(result),
-                files_modified=_step_files(result, modified=True),
-            )
-        )
-        return result
-
-    def _log_event(self, run: AgentRun, event_type: str, payload: dict[str, Any]) -> None:
+    def _log_event(self, run: AgentRun, event_type: str, payload: dict[str, object]) -> None:
         self._db.add(
             AgentEvent(
                 agent_run_id=run.id,
@@ -341,56 +321,6 @@ class AgentRunOrchestrator:
             )
         )
         self._db.commit()
-
-    def _log_model_response(
-        self,
-        run: AgentRun,
-        provider: ModelProvider,
-        response: ModelProviderResponse,
-    ) -> None:
-        self._log_event(
-            run,
-            "model_response",
-            {
-                "provider_name": provider.provider_name,
-                "model_name": provider.model_name,
-                "content_preview": response.content[:500],
-                "tool_calls": [
-                    {"id": tool_call.id, "name": tool_call.name}
-                    for tool_call in response.tool_calls
-                ],
-                "input_tokens": response.input_tokens,
-                "output_tokens": response.output_tokens,
-                "estimated_cost": response.estimated_cost,
-                "latency_seconds": response.latency_seconds,
-            },
-        )
-
-    def _agent_visible_messages(
-        self,
-        task: BenchmarkTask,
-        repository: Repository,
-    ) -> list[ModelMessage]:
-        return [
-            ModelMessage(
-                role="system",
-                content=(
-                    "You are an AI software engineering agent. Use only the controlled "
-                    "workspace tools provided by the platform."
-                ),
-            ),
-            ModelMessage(
-                role="user",
-                content=(
-                    f"Repository: {repository.owner}/{repository.name}\n"
-                    f"Repository URL: {repository.url}\n"
-                    f"Base commit: {task.base_commit}\n"
-                    f"Issue #{task.issue_number}: {task.issue_title}\n\n"
-                    f"{task.issue_body or ''}"
-                ),
-            ),
-        ]
-
 
 def _run_workspace_command(
     args: list[str],
@@ -416,74 +346,6 @@ def _run_workspace_command(
         raise WorkspacePreparationError(
             completed.stderr.strip() or "Workspace preparation command failed."
         )
-
-
-def _controlled_tool_definitions() -> list[ToolDefinition]:
-    return [
-        ToolDefinition(name="list_files", description="List files in the prepared workspace."),
-        ToolDefinition(name="search_code", description="Search code inside the prepared workspace."),
-        ToolDefinition(name="read_file", description="Read a text file from the workspace."),
-        ToolDefinition(name="write_file", description="Write a text file inside the workspace."),
-        ToolDefinition(name="run_tests", description="Run an explicitly allowed test command."),
-        ToolDefinition(name="get_diff", description="Inspect the current workspace diff."),
-        ToolDefinition(name="submit_patch", description="Submit the current workspace diff."),
-    ]
-
-
-def _select_read_target(files: list[str]) -> str:
-    readmes = [
-        file_path
-        for file_path in files
-        if Path(file_path).name.lower() in {"readme", "readme.md", "readme.rst", "readme.txt"}
-    ]
-    if readmes:
-        return min(readmes)
-
-    source_extensions = {
-        ".py",
-        ".js",
-        ".jsx",
-        ".ts",
-        ".tsx",
-        ".go",
-        ".rs",
-        ".java",
-        ".rb",
-        ".php",
-        ".c",
-        ".cc",
-        ".cpp",
-        ".h",
-        ".hpp",
-    }
-    source_files = [file_path for file_path in files if Path(file_path).suffix in source_extensions]
-    if source_files:
-        return min(source_files)
-
-    if files:
-        return min(files)
-    raise AgentRunStartError("Workspace does not contain a readable file.")
-
-
-def _step_summary(result: Any) -> dict[str, Any]:
-    if hasattr(result, "files"):
-        return {
-            "file_count": len(result.files),
-            "truncated": getattr(result, "truncated", False),
-        }
-    if hasattr(result, "file_path") and hasattr(result, "size_bytes"):
-        return {"file_path": result.file_path, "size_bytes": result.size_bytes}
-    if hasattr(result, "changed_files"):
-        return {"changed_files": result.changed_files}
-    return {}
-
-
-def _step_files(result: Any, *, modified: bool = False) -> list[str]:
-    if hasattr(result, "file_path"):
-        return [result.file_path]
-    if modified and hasattr(result, "changed_files"):
-        return list(result.changed_files)
-    return []
 
 
 def latest_generated_patch_id(db: Session, agent_run_id: uuid.UUID) -> uuid.UUID | None:

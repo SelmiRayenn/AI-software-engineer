@@ -53,6 +53,8 @@ class Settings(BaseSettings):
     patch_max_bytes: int = Field(default=1_000_000, ge=1024, alias="PATCH_MAX_BYTES")
     patch_max_changed_files: int = Field(default=100, ge=1, alias="PATCH_MAX_CHANGED_FILES")
     openai_api_key: str | None = Field(default=None, alias="OPENAI_API_KEY")
+    openai_default_model: str = Field(default="gpt-4o-mini", alias="OPENAI_DEFAULT_MODEL")
+    enable_real_model_calls: bool = Field(default=False, alias="ENABLE_REAL_MODEL_CALLS")
     anthropic_api_key: str | None = Field(default=None, alias="ANTHROPIC_API_KEY")
     local_model_endpoint: str | None = Field(default=None, alias="LOCAL_MODEL_ENDPOINT")
 

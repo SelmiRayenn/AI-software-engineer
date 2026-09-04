@@ -285,6 +285,62 @@ def test_start_stops_after_max_steps(client: TestClient) -> None:
     assert "Maximum step limit" in payload["error_message"]
 
 
+def test_invalid_run_configuration_is_rejected(client: TestClient) -> None:
+    task_id = create_task(status="ready")
+
+    response = client.post(
+        f"/agent-runs/{task_id}/start",
+        json={"model_provider": "mock", "run_mode": "unrestricted"},
+    )
+
+    assert response.status_code == 422
+    with TestingSessionLocal() as db:
+        assert db.scalar(select(func.count()).select_from(AgentRun)) == 0
+
+
+def test_run_configuration_and_prompt_preview_are_stored_and_inspectable(
+    client: TestClient,
+) -> None:
+    task_id = create_task(status="ready")
+    request_payload = {
+        "model_provider": "mock",
+        "model_name": "repeatable-mock",
+        "max_steps": 4,
+        "max_tool_errors": 2,
+        "command_timeout_seconds": 15,
+        "include_issue_comments": False,
+        "enable_test_tool": False,
+        "run_mode": "scripted",
+    }
+
+    response = client.post(f"/agent-runs/{task_id}/start", json=request_payload)
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["run_config"] == request_payload
+    assert payload["prompt_preview"]["issue_context_prompt"].startswith(
+        "Fix this benchmark issue."
+    )
+    assert "- run_tests" not in payload["prompt_preview"]["tool_use_instructions"]
+
+    run_id = UUID(payload["id"])
+    with TestingSessionLocal() as db:
+        config_event = db.scalar(
+            select(AgentEvent).where(
+                AgentEvent.agent_run_id == run_id,
+                AgentEvent.event_type == "agent_run_configured",
+            )
+        )
+        assert config_event is not None
+        assert config_event.payload_json["config"] == request_payload
+
+    detail_response = client.get(f"/agent-runs/{run_id}")
+    assert detail_response.status_code == 200
+    detail = detail_response.json()
+    assert detail["run_config"] == request_payload
+    assert detail["prompt_preview"] == payload["prompt_preview"]
+
+
 def create_task(
     *,
     status: str,

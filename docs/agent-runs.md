@@ -13,36 +13,91 @@ Request:
 ```json
 {
   "model_provider": "mock",
-  "model_name": "scripted-mock",
+  "model_name": "mock-loop",
   "max_steps": 4,
-  "command_timeout_seconds": 120
+  "max_tool_errors": 3,
+  "command_timeout_seconds": 120,
+  "include_issue_comments": true,
+  "enable_test_tool": true,
+  "run_mode": "tool_loop"
 }
 ```
 
 The task must already be `ready`. Draft, archived, running, completed, or failed benchmark tasks are rejected by the start endpoint.
 
-## Current Scripted Flow
+## Run Configuration
 
-This is still a skeleton, not the full autonomous coding loop. The orchestrator currently:
+Every start request is validated as an `AgentRunConfig`:
+
+| Field | Default | Validation and behavior |
+| --- | --- | --- |
+| `model_provider` | `mock` | Non-empty provider registered by the provider factory |
+| `model_name` | provider default | Stored as the resolved model name |
+| `max_steps` | `4` | Between 1 and 50 model/tool steps |
+| `max_tool_errors` | `3` | Between 1 and 20 cumulative tool failures |
+| `command_timeout_seconds` | `120` | Between 1 and 600 seconds |
+| `include_issue_comments` | `true` | Includes public issue comments in model context |
+| `enable_test_tool` | `true` | Advertises and registers `run_tests` for the model |
+| `run_mode` | `tool_loop` | `tool_loop` or deterministic `scripted` mode |
+
+`scripted` mode requires the mock provider. It uses the mock provider's deterministic tool sequence
+and is intended for development, smoke tests, and reproducible demonstrations. `tool_loop` consumes
+structured decisions from the selected provider.
+
+The backend normalizes provider/model defaults and stores the complete configuration in an
+`agent_run_configured` event before execution. No database migration is required, and older run
+rows remain readable.
+
+## Prompt Preview
+
+Both the start response and `GET /agent-runs/{run_id}` include:
+
+```json
+{
+  "run_config": {
+    "model_provider": "mock",
+    "model_name": "mock-loop",
+    "max_steps": 4,
+    "max_tool_errors": 3,
+    "command_timeout_seconds": 120,
+    "include_issue_comments": true,
+    "enable_test_tool": true,
+    "run_mode": "tool_loop"
+  },
+  "prompt_preview": {
+    "system_prompt": "...",
+    "developer_safety_prompt": "...",
+    "issue_context_prompt": "...",
+    "tool_use_instructions": "...",
+    "patch_submission_instructions": "..."
+  }
+}
+```
+
+The preview is the organized prompt content used to build the provider messages. Common API key,
+token, password, and authorization patterns are redacted before storage or response. Legacy runs
+without an `agent_run_configured` event return `null` for both fields.
+
+## Agent Loop Flow
+
+The orchestrator currently:
 
 1. Creates an `AgentRun`.
 2. Prepares a temporary sandbox workspace by cloning the task repository and checking out the task base commit.
 3. Initializes the selected model provider.
-4. Sends only agent-visible task context to the provider.
-5. Initializes controlled workspace tools.
-6. Lists files.
-7. Reads `README` or the first available source file.
-8. Reads the current diff.
-9. Submits the current diff as a generated patch.
-10. Runs post-patch tests.
-11. Marks the run completed or failed.
+4. Initializes controlled workspace tools.
+5. Sends only agent-visible task context and tool definitions to the provider.
+6. Executes validated model tool calls and returns structured observations to the model.
+7. Repeats until `submit_patch`, the step limit, the tool-error limit, or a provider failure.
+8. Runs post-patch tests after a successful patch submission.
+9. Marks the run completed or failed and calculates metrics for completed runs.
 
 The default provider is `mock`, so no real LLM call is required.
 
 Prepared runs record `workspace_id` and `workspace_path`. Patch inspection and application endpoints
 use that recorded workspace when it is still available.
 
-Setup and baseline tests run before the scripted tool sequence. If setup fails, the run is marked
+Setup and baseline tests run before the agent loop. If setup fails, the run is marked
 failed immediately after logs are stored.
 
 ## Statuses
@@ -80,13 +135,19 @@ GET /agent-runs/{run_id}/tests
 
 ## Safety
 
-The orchestrator does not read `GoldPatch` data. It builds model messages from repository metadata, issue title/body, and the base commit only.
+Prompt templates live in `backend/app/agents/prompts.py`. They cover the system role,
+developer/safety constraints, issue context, tool-use rules, and patch-submission format.
 
-All repository inspection and patch submission goes through the controlled tool layer. Those tools enforce workspace path boundaries, block hidden gold-solution paths, require exact allowed test commands, and log each tool call to `agent_events`.
+The orchestrator does not read `GoldPatch` data. It builds model messages from repository metadata,
+the issue title/body/optional public comments, configured tests, allowed tools, run constraints, and
+the base commit only.
+
+All repository inspection and patch submission goes through the controlled tool layer. Unknown or
+malformed calls are rejected, and repeated tool errors stop the loop. See `docs/agent-loop.md` for
+the conversation contract and event trace.
 
 ## Current Limits
 
-- The run loop is scripted and no-op by design.
-- Real OpenAI, Anthropic, and local model API calls are not implemented yet.
-- Workspace preparation currently uses a retained Git checkout. Deeper Docker lifecycle and cleanup
-  policies will be added when the autonomous loop is implemented.
+- OpenAI calls are synchronous, opt-in, and disabled by default. Anthropic and local model API
+  calls are not implemented yet.
+- The default mock provider submits a no-op patch through the real loop for deterministic testing.

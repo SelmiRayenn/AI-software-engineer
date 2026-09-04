@@ -25,7 +25,7 @@ class ModelProviderFactory:
             return MockModelProvider(model_name=model_name or "mock-model")
         if normalized_name == "openai":
             return OpenAIProvider(
-                model_name=model_name or "gpt-4o-mini",
+                model_name=model_name or self._settings.openai_default_model,
                 app_settings=self._settings,
             )
         if normalized_name == "anthropic":

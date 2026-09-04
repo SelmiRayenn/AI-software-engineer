@@ -83,7 +83,7 @@ the last bytes with a truncation prefix.
 
 ## Orchestrator Integration
 
-The scripted agent-run orchestrator now runs setup and baseline tests before the mock tool sequence,
+The agent-run orchestrator runs setup and baseline tests before the model tool loop,
 then runs post-patch tests after `submit_patch`. Setup failure fails the run immediately after logs
 are stored. Post-patch test failure also marks the run failed.
 

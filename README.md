@@ -2,7 +2,8 @@
 
 This repository is the starting scaffold for a benchmark platform that evaluates AI coding agents against real historical GitHub issues. The intended system runs each issue in an isolated Docker sandbox, asks an agent to produce a patch, executes tests, routes the result through human approval, and records benchmark metrics.
 
-The first version is intentionally small: it provides the monorepo shape, a FastAPI backend with `/health`, a React + TypeScript dashboard, PostgreSQL wiring, and architecture notes. The full agent loop is not implemented yet.
+The current version provides the monorepo foundation, a FastAPI backend with `/health`, a React +
+TypeScript dashboard, PostgreSQL migrations, controlled sandbox tools, and an iterative agent loop.
 
 ## Repository Layout
 
@@ -159,7 +160,8 @@ Included now:
 - GitHub issue and pull request preview ingestion for public repositories
 - Historical benchmark task creation from GitHub issues and merged fix PRs
 - Swappable model provider abstraction for mock, OpenAI, Anthropic, and local providers
-- Scripted agent run orchestrator that uses controlled tools and a mock provider
+- Configurable agent prompts and iterative tool loop with reproducible run settings
+- Opt-in OpenAI Responses API integration, disabled by default behind a safety flag
 - Patch management for sandbox workspace diffs, safe patch application, and generated patch records
 - Baseline and post-patch test execution with stored command logs
 - First evaluation metrics engine for localization, patches, tests, cost, and runtime
@@ -167,7 +169,7 @@ Included now:
 
 Not included yet:
 
-- Agent patch generation
+- Anthropic and local provider API adapters
 - Pull request publishing/export
 - Leaderboard-style benchmark analytics
 
@@ -183,10 +185,20 @@ See `docs/patch-management.md` for endpoint examples and safety limits.
 ## Test Execution
 
 Agent runs can record setup, baseline, and post-patch command results using only the commands
-configured on the benchmark task. The orchestrator runs setup and baseline tests before the scripted
-agent flow, then applies/stores the generated patch and runs post-patch tests.
+configured on the benchmark task. The orchestrator runs setup and baseline tests before the
+model tool loop, then stores the submitted patch and runs post-patch tests.
 
 See `docs/test-execution.md` for endpoint examples and behavior.
+
+## Agent Loop
+
+The orchestrator sends agent-visible issue context to the selected provider, validates structured
+tool calls, returns controlled tool observations to the model, and repeats until patch submission or
+a configured safety limit. Unknown and malformed tools are rejected, and common secrets are
+redacted from event logs and stored prompt previews. Run configuration controls provider/model,
+limits, issue comments, test-tool access, and scripted versus tool-loop execution.
+
+See `docs/agent-loop.md` for the tool contracts, stop conditions, and event trace.
 
 ## Evaluation Metrics
 
