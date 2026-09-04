@@ -27,6 +27,7 @@ class PatchApplyResponse(BaseModel):
     patch_text: str
     changed_files: list[str] = Field(default_factory=list)
     stats: PatchSizeStatsRead
+    review_status: str = "pending"
 
 
 class GeneratedPatchResponse(BaseModel):
@@ -35,4 +36,5 @@ class GeneratedPatchResponse(BaseModel):
     patch_text: str
     changed_files: list[str] = Field(default_factory=list)
     stats: PatchSizeStatsRead
+    review_status: str = "pending"
     created_at: datetime

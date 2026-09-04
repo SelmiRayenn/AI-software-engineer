@@ -59,6 +59,7 @@ def get_agent_run_patch(run_id: UUID, db: DbSession = None) -> GeneratedPatchRes
         patch_text=generated_patch.patch_text,
         changed_files=generated_patch.changed_files,
         stats=PatchSizeStatsRead(**stats.__dict__),
+        review_status=generated_patch.review_status,
         created_at=generated_patch.created_at,
     )
 
@@ -81,6 +82,7 @@ def apply_agent_run_patch(
         patch_text=result.patch_text,
         changed_files=result.changed_files,
         stats=PatchSizeStatsRead(**result.stats.__dict__),
+        review_status="pending",
     )
 
 

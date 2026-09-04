@@ -260,6 +260,7 @@ class AgentRunOrchestrator:
             steps=steps,
             generated_patch_id=generated_patch_id,
             changed_files=changed_files,
+            patch_review_status=run.patch_review_status,
             error_message=error_message,
         )
 

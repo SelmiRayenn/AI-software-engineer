@@ -36,6 +36,11 @@ from app.schemas.patch import (
     PatchSizeStatsRead,
     WorkspaceDiffRead,
 )
+from app.schemas.patch_review import (
+    PatchApprovalRequest,
+    PatchRejectionRequest,
+    PatchReviewResponse,
+)
 from app.schemas.repository import RepositoryCreate, RepositoryRead
 from app.schemas.sandbox import SandboxCommandResult, SandboxRunRequest, SandboxRunResponse
 from app.schemas.test_execution import TestExecutionRequest, TestExecutionResponse
@@ -75,6 +80,9 @@ __all__ = [
     "HumanReviewRead",
     "PatchApplyRequest",
     "PatchApplyResponse",
+    "PatchApprovalRequest",
+    "PatchRejectionRequest",
+    "PatchReviewResponse",
     "PatchSizeStatsRead",
     "RepositoryCreate",
     "RepositoryRead",

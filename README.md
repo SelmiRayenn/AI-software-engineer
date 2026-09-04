@@ -67,7 +67,13 @@ npm install
 npm run dev
 ```
 
-The dashboard shell reads `VITE_API_BASE_URL` and displays the backend health status when available.
+The dashboard reads `VITE_API_BASE_URL` and displays live backend data for benchmark tasks, agent
+runs, generated patches, test results, metrics, and human patch review actions. Build and type-check
+the frontend with:
+
+```powershell
+npm run build
+```
 
 ## Database Foundation
 
@@ -108,6 +114,9 @@ Initial API surfaces:
 - `GET /agent-runs/{run_id}/tests`
 - `POST /agent-runs/{run_id}/evaluate`
 - `GET /agent-runs/{run_id}/metrics`
+- `POST /patches/{patch_id}/approve`
+- `POST /patches/{patch_id}/reject`
+- `GET /patches/{patch_id}/review`
 - `GET /evaluation/benchmark-tasks/{task_id}/gold-patch`
 
 ## Benchmark Task Lifecycle
@@ -130,6 +139,7 @@ Included now:
 - Monorepo project structure
 - FastAPI app factory and health route
 - React + TypeScript dashboard shell
+- Typed frontend API client and operational dashboard pages
 - Docker Compose draft for PostgreSQL, backend, and frontend
 - Environment template
 - High-level architecture documentation
@@ -143,12 +153,15 @@ Included now:
 - Patch management for sandbox workspace diffs, safe patch application, and generated patch records
 - Baseline and post-patch test execution with stored command logs
 - First evaluation metrics engine for localization, patches, tests, cost, and runtime
+- Human approval workflow for approving or rejecting generated patches
 
 Not included yet:
 
 - Agent patch generation
-- Human approval workflow
+- Pull request publishing/export
 - Leaderboard-style benchmark analytics
+- Dedicated `GET /agent-runs/{id}` endpoint. The frontend currently resolves a run detail by
+  listing recent runs and selecting the matching id.
 
 ## Patch Management
 
@@ -174,3 +187,11 @@ engine compares inspected files against hidden gold changed files, counts unrela
 changes, checks post-patch test results, aggregates token/cost events, and records execution time.
 
 See `docs/evaluation-metrics.md` for the metric formulas.
+
+## Human Approval
+
+Generated patches must be reviewed by a human before any future export or pull request creation
+step. The backend records one `HumanReview` per `GeneratedPatch`, exposes pending/approved/rejected
+status in patch and run responses, and blocks rejected patches from export eligibility.
+
+See `docs/human-approval.md` for endpoint examples and review rules.

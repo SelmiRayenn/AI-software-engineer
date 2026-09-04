@@ -34,3 +34,9 @@ class GeneratedPatch(UUIDPrimaryKeyMixin, CreatedAtMixin, Base):
         cascade="all, delete-orphan",
         uselist=False,
     )
+
+    @property
+    def review_status(self) -> str:
+        if self.human_review is None:
+            return "pending"
+        return self.human_review.decision

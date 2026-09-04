@@ -29,6 +29,7 @@ class AgentRunRead(AgentRunBase):
     id: UUID
     started_at: datetime
     completed_at: datetime | None = None
+    patch_review_status: str | None = None
 
     model_config = ConfigDict(from_attributes=True)
 
@@ -61,4 +62,5 @@ class AgentRunStartResponse(BaseModel):
     steps: list[AgentRunTraceStep] = Field(default_factory=list)
     generated_patch_id: UUID | None = None
     changed_files: list[str] = Field(default_factory=list)
+    patch_review_status: str | None = None
     error_message: str | None = None

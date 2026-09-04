@@ -65,6 +65,13 @@ The evaluation layer summarizes completed runs into `evaluation_metrics`. It com
 files against hidden gold changed files, checks generated patch scope, reads post-patch test
 outcomes, aggregates model token/cost events, and records runtime from run timestamps.
 
+### Human Approval
+
+Generated patches are not publishable by default. A human reviewer must approve or reject each
+`GeneratedPatch`, creating a `human_reviews` record. Rejected patches are blocked from future
+export or pull request creation, while approved patches become eligible for those later workflows.
+Approval endpoints are outside the controlled agent tool layer.
+
 ### Agent Provider Abstraction
 
 The backend contains a provider interface boundary under `app.model_providers`. Mock, OpenAI, Anthropic, and local adapters share the same `ModelProvider` contract and return normalized content, tool calls, token usage, cost estimates, latency, and optional raw provider responses.

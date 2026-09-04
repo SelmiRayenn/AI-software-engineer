@@ -50,6 +50,9 @@ POST /agent-runs/{run_id}/tests/post-patch
 GET  /agent-runs/{run_id}/tests
 POST /agent-runs/{run_id}/evaluate
 GET  /agent-runs/{run_id}/metrics
+POST /patches/{patch_id}/approve
+POST /patches/{patch_id}/reject
+GET  /patches/{patch_id}/review
 POST /github/preview-issue
 POST /github/preview-pr
 POST /benchmark-tasks/from-github
@@ -73,3 +76,5 @@ The patch endpoints inspect active agent-run workspaces, apply safe unified diff
 The test execution endpoints run configured setup, baseline, and post-patch commands for an active agent run and store each command result. See `docs/test-execution.md` from the repository root.
 
 The evaluation endpoints calculate and return idempotent benchmark metrics for completed agent runs. See `docs/evaluation-metrics.md` from the repository root.
+
+The patch review endpoints store human approve/reject decisions for generated patches and expose review status in patch/run responses. See `docs/human-approval.md` from the repository root.

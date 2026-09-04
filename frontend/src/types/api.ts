@@ -1,0 +1,104 @@
+export type UUID = string;
+
+export interface Repository {
+  id: UUID;
+  name: string;
+  owner: string;
+  url: string;
+  default_branch: string;
+  language: string | null;
+  created_at: string;
+}
+
+export interface BenchmarkTask {
+  id: UUID;
+  repository_id: UUID;
+  repository: Repository;
+  issue_number: number;
+  issue_title: string;
+  issue_body: string | null;
+  base_commit: string;
+  status: string;
+  created_at: string;
+}
+
+export interface AgentRun {
+  id: UUID;
+  benchmark_task_id: UUID;
+  model_provider: string;
+  model_name: string;
+  status: string;
+  started_at: string;
+  completed_at: string | null;
+  patch_review_status: string | null;
+}
+
+export interface PatchSizeStats {
+  size_bytes: number;
+  changed_files_count: number;
+  additions: number;
+  deletions: number;
+}
+
+export interface GeneratedPatch {
+  id: UUID;
+  agent_run_id: UUID;
+  patch_text: string;
+  changed_files: string[];
+  stats: PatchSizeStats;
+  review_status: string;
+  created_at: string;
+}
+
+export interface TestResult {
+  id: UUID;
+  agent_run_id: UUID;
+  phase: string;
+  command: string;
+  passed: boolean;
+  exit_code: number;
+  stdout: string | null;
+  stderr: string | null;
+  duration_seconds: number | null;
+  created_at: string;
+}
+
+export interface EvaluationMetric {
+  id: UUID;
+  agent_run_id: UUID;
+  file_localization_score: number | null;
+  patch_applied: boolean;
+  tests_passed: boolean;
+  modified_files_count: number;
+  unrelated_files_count: number;
+  tokens_used: number | null;
+  estimated_cost: number | null;
+  execution_time_seconds: number | null;
+  created_at: string;
+}
+
+export interface HumanReview {
+  id: UUID;
+  generated_patch_id: UUID;
+  decision: string;
+  reviewer_name: string | null;
+  review_notes: string | null;
+  reviewed_at: string;
+}
+
+export interface PatchReview {
+  generated_patch_id: UUID;
+  review_status: string;
+  export_eligible: boolean;
+  review: HumanReview | null;
+}
+
+export interface PatchReviewRequest {
+  reviewer_name: string;
+  review_notes?: string | null;
+  update_existing?: boolean;
+}
+
+export interface ApiErrorPayload {
+  detail?: unknown;
+}

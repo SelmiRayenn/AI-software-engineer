@@ -59,3 +59,9 @@ class AgentRun(UUIDPrimaryKeyMixin, Base):
         cascade="all, delete-orphan",
         uselist=False,
     )
+
+    @property
+    def patch_review_status(self) -> str | None:
+        if self.generated_patch is None:
+            return None
+        return self.generated_patch.review_status
