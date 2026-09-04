@@ -2,9 +2,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import {
   approvePatch,
   getAgentRunDetails,
-  getBenchmarkTaskDetails,
   getPatchReview,
-  getRunMetrics,
   getRunPatch,
   getRunTests,
   rejectPatch,
@@ -13,14 +11,12 @@ import { ErrorState, LoadingState } from "../components/DataState";
 import { PageHeader } from "../components/PageHeader";
 import { StatusBadge } from "../components/StatusBadge";
 import type {
-  AgentRun,
-  BenchmarkTask,
-  EvaluationMetric,
+  AgentRunDetail,
   GeneratedPatch,
   PatchReview,
   TestResult,
 } from "../types/api";
-import { formatDuration, shortId, shortSha } from "../utils/format";
+import { formatDuration, shortId } from "../utils/format";
 
 interface AgentRunDetailPageProps {
   runId: string;
@@ -28,12 +24,10 @@ interface AgentRunDetailPageProps {
 }
 
 interface DetailState {
-  run: AgentRun;
-  task: BenchmarkTask;
+  run: AgentRunDetail;
   patch: GeneratedPatch | null;
   review: PatchReview | null;
   tests: TestResult[];
-  metrics: EvaluationMetric | null;
 }
 
 interface TestPhaseGroup {
@@ -61,14 +55,12 @@ export function AgentRunDetailPage({ runId, onNavigate }: AgentRunDetailPageProp
 
   const loadDetail = useCallback(async (): Promise<DetailState> => {
     const run = await getAgentRunDetails(runId);
-    const [task, patch, tests, metrics] = await Promise.all([
-      getBenchmarkTaskDetails(run.benchmark_task_id),
+    const [patch, tests] = await Promise.all([
       getRunPatch(runId),
       getRunTests(runId),
-      getRunMetrics(runId),
     ]);
     const review = patch ? await getPatchReview(patch.id) : null;
-    return { run, task, patch, review, tests, metrics };
+    return { run, patch, review, tests };
   }, [runId]);
 
   useEffect(() => {
@@ -162,7 +154,7 @@ export function AgentRunDetailPage({ runId, onNavigate }: AgentRunDetailPageProp
         }
         eyebrow="Agent Run"
         title={`Run ${shortId(state.run.id)}`}
-        description={`#${state.task.issue_number} in ${state.task.repository.owner}/${state.task.repository.name}`}
+        description={`#${state.run.benchmark_task.issue_number} in ${state.run.repository.owner}/${state.run.repository.name}`}
       />
 
       {failedRun ? (
@@ -204,26 +196,26 @@ export function AgentRunDetailPage({ runId, onNavigate }: AgentRunDetailPageProp
         <article className="panel">
           <div className="panel-header">
             <h3>Issue Context</h3>
-            <StatusBadge value={state.task.status} />
+            <StatusBadge value={state.run.status} />
           </div>
           <dl className="definition-list">
             <div>
               <dt>Issue</dt>
               <dd>
-                #{state.task.issue_number}
-                <span>{state.task.issue_title}</span>
+                #{state.run.benchmark_task.issue_number}
+                <span>{state.run.benchmark_task.issue_title}</span>
               </dd>
             </div>
             <div>
               <dt>Repository</dt>
               <dd>
-                {state.task.repository.owner}/{state.task.repository.name}
-                <span>{state.task.repository.language ?? "Unknown language"}</span>
+                {state.run.repository.owner}/{state.run.repository.name}
+                <span>{state.run.repository.url}</span>
               </dd>
             </div>
             <div>
-              <dt>Base Commit</dt>
-              <dd className="mono">{shortSha(state.task.base_commit)}</dd>
+              <dt>Benchmark Task</dt>
+              <dd className="mono">{shortId(state.run.benchmark_task_id)}</dd>
             </div>
           </dl>
         </article>
@@ -405,32 +397,41 @@ export function AgentRunDetailPage({ runId, onNavigate }: AgentRunDetailPageProp
       <section className="panel">
         <div className="panel-header">
           <h3>Evaluation Metrics</h3>
-          <span>{state.metrics ? "Available" : "Not evaluated"}</span>
+          <span>{state.run.metric_summary ? "Available" : "Not evaluated"}</span>
         </div>
-        {state.metrics ? (
+        {state.run.metric_summary ? (
           <div className="metric-grid">
-            <MetricItem label="Tests Passed" value={state.metrics.tests_passed ? "Yes" : "No"} />
+            <MetricItem
+              label="Tests Passed"
+              value={state.run.metric_summary.tests_passed ? "Yes" : "No"}
+            />
             <MetricItem
               label="File Localization"
-              value={formatPercent(state.metrics.file_localization_score)}
+              value={formatPercent(state.run.metric_summary.file_localization_score)}
             />
             <MetricItem
               label="Patch Applied"
-              value={state.metrics.patch_applied ? "Yes" : "No"}
+              value={state.run.metric_summary.patch_applied ? "Yes" : "No"}
             />
             <MetricItem
               label="Modified Files"
-              value={state.metrics.modified_files_count.toString()}
+              value={state.run.metric_summary.modified_files_count.toString()}
             />
             <MetricItem
               label="Unrelated Files"
-              value={state.metrics.unrelated_files_count.toString()}
+              value={state.run.metric_summary.unrelated_files_count.toString()}
             />
-            <MetricItem label="Tokens Used" value={formatNumber(state.metrics.tokens_used)} />
-            <MetricItem label="Estimated Cost" value={formatCost(state.metrics.estimated_cost)} />
+            <MetricItem
+              label="Tokens Used"
+              value={formatNumber(state.run.metric_summary.tokens_used)}
+            />
+            <MetricItem
+              label="Estimated Cost"
+              value={formatCost(state.run.metric_summary.estimated_cost)}
+            />
             <MetricItem
               label="Execution Time"
-              value={formatSeconds(state.metrics.execution_time_seconds)}
+              value={formatSeconds(state.run.metric_summary.execution_time_seconds)}
             />
           </div>
         ) : (
@@ -468,7 +469,7 @@ function MetricItem({ label, value }: { label: string; value: string }) {
 
 function currentReviewStatus(state: DetailState): string {
   return (
-    state.review?.review_status ?? state.patch?.review_status ?? state.run.patch_review_status ?? "none"
+    state.review?.review_status ?? state.patch?.review_status ?? state.run.review_status ?? "none"
   );
 }
 

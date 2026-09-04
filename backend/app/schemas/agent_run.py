@@ -34,6 +34,46 @@ class AgentRunRead(AgentRunBase):
     model_config = ConfigDict(from_attributes=True)
 
 
+class AgentRunDetailRepository(BaseModel):
+    name: str
+    owner: str
+    url: str
+
+
+class AgentRunDetailBenchmarkTask(BaseModel):
+    id: UUID
+    issue_number: int
+    issue_title: str
+
+
+class AgentRunMetricSummary(BaseModel):
+    id: UUID
+    file_localization_score: float | None = None
+    patch_applied: bool
+    tests_passed: bool
+    modified_files_count: int
+    unrelated_files_count: int
+    tokens_used: int | None = None
+    estimated_cost: float | None = None
+    execution_time_seconds: float | None = None
+    created_at: datetime
+
+
+class AgentRunDetailRead(BaseModel):
+    id: UUID
+    status: str
+    benchmark_task_id: UUID
+    benchmark_task: AgentRunDetailBenchmarkTask
+    repository: AgentRunDetailRepository
+    model_provider: str
+    model_name: str
+    started_at: datetime
+    completed_at: datetime | None = None
+    review_status: str | None = None
+    changed_files: list[str] = Field(default_factory=list)
+    metric_summary: AgentRunMetricSummary | None = None
+
+
 class AgentRunStartRequest(BaseModel):
     model_provider: str = Field(default="mock", min_length=1, max_length=100)
     model_name: str | None = Field(default=None, max_length=255)

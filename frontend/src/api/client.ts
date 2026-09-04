@@ -1,6 +1,7 @@
 import { apiBaseUrl } from "./config";
 import type {
   AgentRun,
+  AgentRunDetail,
   ApiErrorPayload,
   BenchmarkTask,
   EvaluationMetric,
@@ -31,26 +32,12 @@ export async function listBenchmarkTasks(): Promise<BenchmarkTask[]> {
   return requestJson<BenchmarkTask[]>("/api/v1/benchmark-tasks");
 }
 
-export async function getBenchmarkTaskDetails(taskId: UUID): Promise<BenchmarkTask> {
-  const tasks = await requestJson<BenchmarkTask[]>("/api/v1/benchmark-tasks?limit=500");
-  const task = tasks.find((candidate) => candidate.id === taskId);
-  if (!task) {
-    throw new ApiError("Benchmark task not found.", 404, { detail: "Benchmark task not found." });
-  }
-  return task;
-}
-
 export async function listAgentRuns(): Promise<AgentRun[]> {
   return requestJson<AgentRun[]>("/api/v1/agent-runs");
 }
 
-export async function getAgentRunDetails(runId: UUID): Promise<AgentRun> {
-  const runs = await requestJson<AgentRun[]>("/api/v1/agent-runs?limit=500");
-  const run = runs.find((candidate) => candidate.id === runId);
-  if (!run) {
-    throw new ApiError("Agent run not found.", 404, { detail: "Agent run not found." });
-  }
-  return run;
+export async function getAgentRunDetails(runId: UUID): Promise<AgentRunDetail> {
+  return requestJson<AgentRunDetail>(`/agent-runs/${runId}`);
 }
 
 export async function getRunPatch(runId: UUID): Promise<GeneratedPatch | null> {

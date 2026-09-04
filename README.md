@@ -2,7 +2,7 @@
 
 This repository is the starting scaffold for a benchmark platform that evaluates AI coding agents against real historical GitHub issues. The intended system runs each issue in an isolated Docker sandbox, asks an agent to produce a patch, executes tests, routes the result through human approval, and records benchmark metrics.
 
-The first version is intentionally small: it provides the monorepo shape, a FastAPI backend with `/health`, a React + TypeScript dashboard shell, PostgreSQL wiring, and architecture notes. The full agent loop is not implemented yet.
+The first version is intentionally small: it provides the monorepo shape, a FastAPI backend with `/health`, a React + TypeScript dashboard, PostgreSQL wiring, and architecture notes. The full agent loop is not implemented yet.
 
 ## Repository Layout
 
@@ -77,11 +77,13 @@ npm run build
 
 ## Database Foundation
 
-The backend uses SQLAlchemy with PostgreSQL. Development Docker runs set `DATABASE_AUTO_CREATE_TABLES=true`, so the FastAPI app creates the initial tables on startup. For local development, create and seed the tables from the backend directory:
+The backend uses SQLAlchemy, PostgreSQL, and Alembic migrations. Development Docker runs apply
+`alembic upgrade head` before the FastAPI app starts. For local development, apply migrations and
+seed the tables from the backend directory:
 
 ```powershell
 cd backend
-python scripts/create_tables.py
+python scripts/apply_migrations.py
 python scripts/seed_dev.py
 ```
 
@@ -89,6 +91,13 @@ Load the small manual draft benchmark dataset from the repository root:
 
 ```powershell
 python scripts/load_manual_benchmarks.py
+```
+
+Create and inspect migrations from the backend directory:
+
+```powershell
+python scripts/create_migration.py "describe schema change"
+python scripts/migration_status.py
 ```
 
 Initial API surfaces:
@@ -106,6 +115,7 @@ Initial API surfaces:
 - `POST /benchmark-tasks/{task_id}/validate`
 - `POST /benchmark-tasks/{task_id}/mark-ready`
 - `POST /agent-runs/{benchmark_task_id}/start`
+- `GET /agent-runs/{run_id}`
 - `GET /agent-runs/{run_id}/diff`
 - `GET /agent-runs/{run_id}/patch`
 - `POST /agent-runs/{run_id}/patch/apply`
@@ -138,7 +148,7 @@ Included now:
 
 - Monorepo project structure
 - FastAPI app factory and health route
-- React + TypeScript dashboard shell
+- React + TypeScript dashboard
 - Typed frontend API client and operational dashboard pages
 - Docker Compose draft for PostgreSQL, backend, and frontend
 - Environment template
@@ -160,8 +170,6 @@ Not included yet:
 - Agent patch generation
 - Pull request publishing/export
 - Leaderboard-style benchmark analytics
-- Dedicated `GET /agent-runs/{id}` endpoint. The frontend currently resolves a run detail by
-  listing recent runs and selecting the matching id.
 
 ## Patch Management
 
@@ -195,3 +203,5 @@ step. The backend records one `HumanReview` per `GeneratedPatch`, exposes pendin
 status in patch and run responses, and blocks rejected patches from export eligibility.
 
 See `docs/human-approval.md` for endpoint examples and review rules.
+
+See `docs/database-migrations.md` for the migration workflow.

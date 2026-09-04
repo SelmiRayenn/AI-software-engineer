@@ -10,6 +10,7 @@ The current implementation exposes a health endpoint, SQLAlchemy models, and bas
 python -m venv .venv
 .\.venv\Scripts\Activate.ps1
 pip install -e ".[dev]"
+python scripts/apply_migrations.py
 uvicorn app.main:app --reload
 ```
 
@@ -19,10 +20,17 @@ Health check:
 GET /health
 ```
 
-Create database tables:
+Apply database migrations:
 
 ```powershell
-python scripts/create_tables.py
+python scripts/apply_migrations.py
+```
+
+Create and inspect migrations:
+
+```powershell
+python scripts/create_migration.py "describe schema change"
+python scripts/migration_status.py
 ```
 
 Seed development data:
@@ -42,6 +50,7 @@ GET  /api/v1/agent-runs
 POST /api/v1/agent-runs
 POST /sandbox/run
 POST /agent-runs/{benchmark_task_id}/start
+GET  /agent-runs/{run_id}
 GET  /agent-runs/{run_id}/diff
 GET  /agent-runs/{run_id}/patch
 POST /agent-runs/{run_id}/patch/apply
@@ -78,3 +87,5 @@ The test execution endpoints run configured setup, baseline, and post-patch comm
 The evaluation endpoints calculate and return idempotent benchmark metrics for completed agent runs. See `docs/evaluation-metrics.md` from the repository root.
 
 The patch review endpoints store human approve/reject decisions for generated patches and expose review status in patch/run responses. See `docs/human-approval.md` from the repository root.
+
+Database schema changes are managed with Alembic migrations. See `docs/database-migrations.md` from the repository root.

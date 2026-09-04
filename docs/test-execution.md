@@ -70,7 +70,7 @@ Each command creates a `TestResult` row with:
 - stderr
 - duration in seconds
 
-Output is capped by `SANDBOX_MAX_LOG_BYTES`. When output exceeds the limit, the stored value keeps
+Output is capped by `SANDBOX_MAX_OUTPUT_BYTES`. When output exceeds the limit, the stored value keeps
 the last bytes with a truncation prefix.
 
 ## Safety

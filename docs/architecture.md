@@ -26,6 +26,7 @@ Benchmark task creation uses a separate service layer above GitHub ingestion. It
 ### PostgreSQL
 
 PostgreSQL is the source of truth for benchmark cases, gold patches, agent runs, generated patches, agent events, test outcomes, approval decisions, and evaluation metrics.
+Schema changes are managed with Alembic migrations under `backend/alembic`.
 
 The initial schema includes:
 
@@ -96,7 +97,7 @@ The first working version should keep implementation depth narrow:
 - Add one provider adapter behind the `ModelProvider` interface.
 - Store raw patches and test logs before building richer analytics.
 - Keep human approval as a simple status transition before adding collaboration features.
-- Add migrations once the initial schema stabilizes beyond the scaffold.
+- Keep schema changes behind reviewed Alembic migrations.
 
 ## Boundaries
 

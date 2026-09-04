@@ -1,8 +1,6 @@
 from __future__ import annotations
 
-import shutil
 import subprocess
-import tempfile
 import time
 import uuid
 from collections.abc import Callable
@@ -16,7 +14,6 @@ from sqlalchemy.orm import Session
 
 from app import crud
 from app.agents.tools import AgentWorkspaceTools, ToolError
-from app.core.config import settings
 from app.core.run_statuses import (
     RUN_STATUS_COMPLETED,
     RUN_STATUS_FAILED,
@@ -33,6 +30,8 @@ from app.model_providers import (
     ToolDefinition,
 )
 from app.models import AgentEvent, AgentRun, BenchmarkTask, GeneratedPatch, Repository
+from app.sandbox import SandboxWorkspaceManager, SandboxWorkspaceSafetyError
+from app.sandbox.workspace import SandboxWorkspaceMetadata
 from app.schemas.agent_run import AgentRunStartRequest, AgentRunStartResponse, AgentRunTraceStep
 from app.test_execution import TestExecutionError, TestExecutionService
 
@@ -57,6 +56,8 @@ class MaxStepsExceededError(AgentRunStartError):
 class PreparedWorkspace:
     workspace_id: str
     path: Path
+    workspace_path: Path | None = None
+    metadata: SandboxWorkspaceMetadata | None = None
     cleanup: Callable[[], None] | None = None
 
     def close(self) -> None:
@@ -71,6 +72,9 @@ class PreparedWorkspace:
 
 
 class GitSandboxWorkspacePreparer:
+    def __init__(self, *, workspace_manager: SandboxWorkspaceManager | None = None) -> None:
+        self._workspace_manager = workspace_manager or SandboxWorkspaceManager()
+
     def prepare(
         self,
         *,
@@ -78,31 +82,32 @@ class GitSandboxWorkspacePreparer:
         base_commit: str,
         command_timeout_seconds: int,
     ) -> PreparedWorkspace:
-        workspace_id = uuid.uuid4().hex
-        root = _workspace_root()
-        workspace_root = Path(
-            tempfile.mkdtemp(prefix=f"agent-run-{workspace_id}-", dir=root)
-        ).resolve()
-        repo_path = workspace_root / "repo"
+        workspace = self._workspace_manager.create_workspace(prefix="agent-run")
 
         try:
             _run_workspace_command(
-                ["git", "clone", "--no-checkout", "--", repository_url, str(repo_path)],
-                cwd=workspace_root,
+                ["git", "clone", "--no-checkout", "--", repository_url, str(workspace.repo_path)],
+                cwd=workspace.workspace_path,
                 timeout_seconds=command_timeout_seconds,
             )
             _run_workspace_command(
-                ["git", "-C", str(repo_path), "checkout", "--detach", base_commit],
-                cwd=workspace_root,
+                ["git", "-C", str(workspace.repo_path), "checkout", "--detach", base_commit],
+                cwd=workspace.workspace_path,
                 timeout_seconds=command_timeout_seconds,
             )
-        except Exception:
-            shutil.rmtree(workspace_root, ignore_errors=True)
+        except (OSError, RuntimeError):
+            try:
+                self._workspace_manager.cleanup_workspace(workspace)
+            except (OSError, SandboxWorkspaceSafetyError):
+                pass
             raise
 
         return PreparedWorkspace(
-            workspace_id=workspace_id,
-            path=repo_path,
+            workspace_id=workspace.workspace_id,
+            path=workspace.repo_path,
+            workspace_path=workspace.workspace_path,
+            metadata=workspace,
+            cleanup=lambda: self._workspace_manager.cleanup_workspace(workspace),
         )
 
 
@@ -385,14 +390,6 @@ class AgentRunOrchestrator:
                 ),
             ),
         ]
-
-
-def _workspace_root() -> str | None:
-    if not settings.sandbox_workspace_root:
-        return None
-    root = Path(settings.sandbox_workspace_root)
-    root.mkdir(parents=True, exist_ok=True)
-    return str(root)
 
 
 def _run_workspace_command(

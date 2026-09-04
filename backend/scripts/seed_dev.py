@@ -1,12 +1,12 @@
 from sqlalchemy import select
 
-from app.db.init_db import init_db
+from app.db.migrations import upgrade_database
 from app.db.session import SessionLocal
 from app.models import AgentRun, BenchmarkTask, GoldPatch, Repository
 
 
 def seed() -> None:
-    init_db()
+    upgrade_database()
 
     with SessionLocal() as db:
         repository = db.scalar(

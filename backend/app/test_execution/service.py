@@ -87,7 +87,7 @@ class TestExecutionService:
             command_timeout_seconds or settings.sandbox_command_timeout_seconds,
             settings.sandbox_max_command_timeout_seconds,
         )
-        self._max_log_bytes = max_log_bytes or settings.sandbox_max_log_bytes
+        self._max_log_bytes = max_log_bytes or settings.sandbox_max_output_bytes
 
     def list_results(self) -> list[TestResult]:
         statement = (

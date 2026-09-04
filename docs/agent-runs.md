@@ -59,6 +59,19 @@ cancelled
 
 The endpoint returns a structured trace with step names, success flags, durations, summaries, generated patch id, changed files, and any failure message.
 
+## Run Detail
+
+```text
+GET /agent-runs/{run_id}
+```
+
+The detail endpoint returns the run status, model provider/name, timestamps, linked benchmark task
+issue title, repository owner/name/url, generated patch review status, generated patch changed
+files, and metric summary when metrics exist.
+
+This response is safe for the dashboard and agent-facing review UI. It does not include
+`GoldPatch.patch_text` or hidden gold changed files.
+
 Test command logs are available through:
 
 ```text

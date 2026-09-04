@@ -12,7 +12,7 @@ if str(BACKEND) not in sys.path:
 
 from sqlalchemy import select
 
-from app.db.init_db import init_db
+from app.db.migrations import upgrade_database
 from app.db.session import SessionLocal
 from app.models import BenchmarkTask, GoldPatch, Repository
 
@@ -20,7 +20,7 @@ DATASET_PATH = ROOT / "benchmarks" / "manual_tasks.json"
 
 
 def load_manual_benchmarks(dataset_path: Path = DATASET_PATH) -> None:
-    init_db()
+    upgrade_database()
     tasks = json.loads(dataset_path.read_text(encoding="utf-8"))
 
     with SessionLocal() as db:

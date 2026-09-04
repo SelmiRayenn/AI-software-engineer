@@ -122,4 +122,4 @@ python scripts/load_manual_benchmarks.py
 - Public GitHub repositories only.
 - The PR must be merged.
 - Creating tasks does not run the sandbox or tests.
-- Existing PostgreSQL databases created before this schema change may need to be recreated until migrations are added.
+- PostgreSQL schema changes are applied with Alembic migrations. See `docs/database-migrations.md`.

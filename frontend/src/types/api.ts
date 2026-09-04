@@ -33,6 +33,46 @@ export interface AgentRun {
   patch_review_status: string | null;
 }
 
+export interface AgentRunDetailRepository {
+  name: string;
+  owner: string;
+  url: string;
+}
+
+export interface AgentRunDetailBenchmarkTask {
+  id: UUID;
+  issue_number: number;
+  issue_title: string;
+}
+
+export interface AgentRunMetricSummary {
+  id: UUID;
+  file_localization_score: number | null;
+  patch_applied: boolean;
+  tests_passed: boolean;
+  modified_files_count: number;
+  unrelated_files_count: number;
+  tokens_used: number | null;
+  estimated_cost: number | null;
+  execution_time_seconds: number | null;
+  created_at: string;
+}
+
+export interface AgentRunDetail {
+  id: UUID;
+  status: string;
+  benchmark_task_id: UUID;
+  benchmark_task: AgentRunDetailBenchmarkTask;
+  repository: AgentRunDetailRepository;
+  model_provider: string;
+  model_name: string;
+  started_at: string;
+  completed_at: string | null;
+  review_status: string | null;
+  changed_files: string[];
+  metric_summary: AgentRunMetricSummary | null;
+}
+
 export interface PatchSizeStats {
   size_bytes: number;
   changed_files_count: number;

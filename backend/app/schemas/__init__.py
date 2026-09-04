@@ -1,6 +1,10 @@
 from app.schemas.agent_event import AgentEventCreate, AgentEventRead
 from app.schemas.agent_run import (
     AgentRunCreate,
+    AgentRunDetailBenchmarkTask,
+    AgentRunDetailRead,
+    AgentRunDetailRepository,
+    AgentRunMetricSummary,
     AgentRunRead,
     AgentRunStartRequest,
     AgentRunStartResponse,
@@ -50,6 +54,10 @@ __all__ = [
     "AgentEventCreate",
     "AgentEventRead",
     "AgentRunCreate",
+    "AgentRunDetailBenchmarkTask",
+    "AgentRunDetailRead",
+    "AgentRunDetailRepository",
+    "AgentRunMetricSummary",
     "AgentRunRead",
     "AgentRunStartRequest",
     "AgentRunStartResponse",

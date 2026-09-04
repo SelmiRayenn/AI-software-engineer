@@ -47,6 +47,9 @@ class SandboxCommandResult(BaseModel):
 class SandboxRunResponse(BaseModel):
     status: SandboxStatus
     workspace_id: str
+    workspace_path: str
+    workspace_root: str
+    workspace_retained: bool
     repository_url: str
     base_commit: str
     image: str
@@ -56,4 +59,6 @@ class SandboxRunResponse(BaseModel):
     checkout_result: SandboxCommandResult | None = None
     setup_results: list[SandboxCommandResult] = Field(default_factory=list)
     test_results: list[SandboxCommandResult] = Field(default_factory=list)
+    error_code: str | None = None
     error: str | None = None
+    cleanup_error: str | None = None
