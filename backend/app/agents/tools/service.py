@@ -8,10 +8,11 @@ from pathlib import Path, PurePosixPath, PureWindowsPath
 from typing import Any
 from uuid import UUID
 
-from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app.models import AgentEvent, AgentRun, GeneratedPatch, TestResult
+from app.core.test_phases import TEST_PHASE_POST_PATCH
+from app.models import AgentEvent, AgentRun, TestResult
+from app.patches import PatchService
 
 
 class ToolError(RuntimeError):
@@ -272,7 +273,7 @@ class AgentWorkspaceTools:
             self._db.add(
                 TestResult(
                     agent_run_id=self._agent_run_id,
-                    phase="agent_tool",
+                    phase=TEST_PHASE_POST_PATCH,
                     command=command,
                     passed=result.passed,
                     exit_code=result.exit_code,
@@ -296,22 +297,12 @@ class AgentWorkspaceTools:
 
     def submit_patch(self) -> SubmittedPatchResult:
         def operation(metadata: _ToolCallMetadata) -> SubmittedPatchResult:
-            diff = self._build_diff()
-            generated_patch = self._db.scalar(
-                select(GeneratedPatch).where(GeneratedPatch.agent_run_id == self._agent_run_id)
+            patch_service = self._patch_service()
+            diff = patch_service.get_current_workspace_diff()
+            generated_patch = patch_service.store_generated_patch(
+                patch_text=diff.patch_text,
+                changed_files=diff.changed_files,
             )
-            if generated_patch is None:
-                generated_patch = GeneratedPatch(
-                    agent_run_id=self._agent_run_id,
-                    patch_text=diff.patch_text,
-                    changed_files=diff.changed_files,
-                )
-                self._db.add(generated_patch)
-            else:
-                generated_patch.patch_text = diff.patch_text
-                generated_patch.changed_files = diff.changed_files
-
-            self._db.flush()
             metadata.files_read.extend(diff.changed_files)
             metadata.extra["changed_files"] = diff.changed_files
             return SubmittedPatchResult(
@@ -472,25 +463,15 @@ class AgentWorkspaceTools:
         return path.resolve().relative_to(self._workspace_path).as_posix()
 
     def _build_diff(self) -> DiffResult:
-        tracked_diff = self._run_git(["diff", "--binary", "--"]).stdout
-        tracked_changed = _split_git_lines(self._run_git(["diff", "--name-only", "--"]).stdout)
-        untracked = _split_git_lines(
-            self._run_git(["ls-files", "--others", "--exclude-standard"]).stdout
+        diff = self._patch_service().get_current_workspace_diff()
+        return DiffResult(patch_text=diff.patch_text, changed_files=diff.changed_files)
+
+    def _patch_service(self) -> PatchService:
+        return PatchService(
+            db=self._db,
+            agent_run_id=self._agent_run_id,
+            workspace_path=self._workspace_path,
         )
-
-        patch_parts = [tracked_diff] if tracked_diff.strip() else []
-        for file_path in untracked:
-            path, relative_path = self._resolve_path(file_path, must_exist=True)
-            if path.stat().st_size <= self._max_file_read_bytes:
-                try:
-                    content = path.read_text(encoding="utf-8")
-                except UnicodeDecodeError:
-                    content = ""
-                if content:
-                    patch_parts.append(_new_file_patch(relative_path, content))
-
-        changed_files = sorted({*tracked_changed, *untracked})
-        return DiffResult(patch_text="\n".join(part for part in patch_parts if part), changed_files=changed_files)
 
     def _run_git(self, args: list[str]) -> subprocess.CompletedProcess[str]:
         completed = subprocess.run(
@@ -555,16 +536,3 @@ def _decode_timeout_output(value: str | bytes | None) -> str:
     if isinstance(value, bytes):
         return value.decode("utf-8", errors="replace")
     return value
-
-
-def _split_git_lines(value: str) -> list[str]:
-    return [line.strip() for line in value.splitlines() if line.strip()]
-
-
-def _new_file_patch(file_path: str, content: str) -> str:
-    lines = [f"diff --git a/{file_path} b/{file_path}", "new file mode 100644"]
-    lines.extend(["--- /dev/null", f"+++ b/{file_path}", "@@ -0,0 +1 @@"])
-    lines.extend(f"+{line}" for line in content.splitlines())
-    if content.endswith("\n"):
-        lines.append("+")
-    return "\n".join(lines)

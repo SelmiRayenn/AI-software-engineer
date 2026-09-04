@@ -100,6 +100,14 @@ Initial API surfaces:
 - `POST /benchmark-tasks/{task_id}/validate`
 - `POST /benchmark-tasks/{task_id}/mark-ready`
 - `POST /agent-runs/{benchmark_task_id}/start`
+- `GET /agent-runs/{run_id}/diff`
+- `GET /agent-runs/{run_id}/patch`
+- `POST /agent-runs/{run_id}/patch/apply`
+- `POST /agent-runs/{run_id}/tests/baseline`
+- `POST /agent-runs/{run_id}/tests/post-patch`
+- `GET /agent-runs/{run_id}/tests`
+- `POST /agent-runs/{run_id}/evaluate`
+- `GET /agent-runs/{run_id}/metrics`
 - `GET /evaluation/benchmark-tasks/{task_id}/gold-patch`
 
 ## Benchmark Task Lifecycle
@@ -132,10 +140,37 @@ Included now:
 - Historical benchmark task creation from GitHub issues and merged fix PRs
 - Swappable model provider abstraction for mock, OpenAI, Anthropic, and local providers
 - Scripted agent run orchestrator that uses controlled tools and a mock provider
+- Patch management for sandbox workspace diffs, safe patch application, and generated patch records
+- Baseline and post-patch test execution with stored command logs
+- First evaluation metrics engine for localization, patches, tests, cost, and runtime
 
 Not included yet:
 
 - Agent patch generation
-- Test execution engine
 - Human approval workflow
-- Full benchmark metrics computation
+- Leaderboard-style benchmark analytics
+
+## Patch Management
+
+Generated agent patches are managed separately from hidden gold solutions. The backend can inspect
+the current sandbox workspace diff, apply a unified diff after safety checks, store the result as a
+`GeneratedPatch`, and return patch size statistics. Patch application is allowed only while a run is
+`queued` or `running`; completed runs are immutable.
+
+See `docs/patch-management.md` for endpoint examples and safety limits.
+
+## Test Execution
+
+Agent runs can record setup, baseline, and post-patch command results using only the commands
+configured on the benchmark task. The orchestrator runs setup and baseline tests before the scripted
+agent flow, then applies/stores the generated patch and runs post-patch tests.
+
+See `docs/test-execution.md` for endpoint examples and behavior.
+
+## Evaluation Metrics
+
+Completed agent runs are summarized into a single idempotent `EvaluationMetric` row. The first
+engine compares inspected files against hidden gold changed files, counts unrelated generated
+changes, checks post-patch test results, aggregates token/cost events, and records execution time.
+
+See `docs/evaluation-metrics.md` for the metric formulas.

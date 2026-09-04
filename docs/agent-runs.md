@@ -34,9 +34,16 @@ This is still a skeleton, not the full autonomous coding loop. The orchestrator 
 7. Reads `README` or the first available source file.
 8. Reads the current diff.
 9. Submits the current diff as a generated patch.
-10. Marks the run completed or failed.
+10. Runs post-patch tests.
+11. Marks the run completed or failed.
 
 The default provider is `mock`, so no real LLM call is required.
+
+Prepared runs record `workspace_id` and `workspace_path`. Patch inspection and application endpoints
+use that recorded workspace when it is still available.
+
+Setup and baseline tests run before the scripted tool sequence. If setup fails, the run is marked
+failed immediately after logs are stored.
 
 ## Statuses
 
@@ -52,6 +59,12 @@ cancelled
 
 The endpoint returns a structured trace with step names, success flags, durations, summaries, generated patch id, changed files, and any failure message.
 
+Test command logs are available through:
+
+```text
+GET /agent-runs/{run_id}/tests
+```
+
 ## Safety
 
 The orchestrator does not read `GoldPatch` data. It builds model messages from repository metadata, issue title/body, and the base commit only.
@@ -62,4 +75,5 @@ All repository inspection and patch submission goes through the controlled tool 
 
 - The run loop is scripted and no-op by design.
 - Real OpenAI, Anthropic, and local model API calls are not implemented yet.
-- Workspace preparation currently uses a temporary Git checkout. Deeper Docker lifecycle integration will be added when the autonomous loop is implemented.
+- Workspace preparation currently uses a retained Git checkout. Deeper Docker lifecycle and cleanup
+  policies will be added when the autonomous loop is implemented.

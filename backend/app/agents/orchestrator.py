@@ -24,6 +24,7 @@ from app.core.run_statuses import (
     RUN_STATUS_RUNNING,
 )
 from app.core.task_statuses import TASK_STATUS_READY
+from app.evaluation import EvaluationService
 from app.model_providers import (
     ModelMessage,
     ModelProvider,
@@ -33,6 +34,7 @@ from app.model_providers import (
 )
 from app.models import AgentEvent, AgentRun, BenchmarkTask, GeneratedPatch, Repository
 from app.schemas.agent_run import AgentRunStartRequest, AgentRunStartResponse, AgentRunTraceStep
+from app.test_execution import TestExecutionError, TestExecutionService
 
 
 class AgentRunStartError(RuntimeError):
@@ -101,7 +103,6 @@ class GitSandboxWorkspacePreparer:
         return PreparedWorkspace(
             workspace_id=workspace_id,
             path=repo_path,
-            cleanup=lambda: shutil.rmtree(workspace_root, ignore_errors=True),
         )
 
 
@@ -166,6 +167,15 @@ class AgentRunOrchestrator:
                 base_commit=task.base_commit,
                 command_timeout_seconds=request.command_timeout_seconds,
             ) as workspace:
+                self._set_run_workspace(run, workspace)
+                self._log_event(
+                    run,
+                    "workspace_prepared",
+                    {
+                        "workspace_id": workspace.workspace_id,
+                        "workspace_path": str(workspace.path),
+                    },
+                )
                 tools = AgentWorkspaceTools(
                     db=self._db,
                     agent_run_id=run.id,
@@ -173,6 +183,16 @@ class AgentRunOrchestrator:
                     allowed_test_commands=task.test_commands,
                     command_timeout_seconds=request.command_timeout_seconds,
                 )
+                test_executor = TestExecutionService(
+                    db=self._db,
+                    agent_run_id=run.id,
+                    workspace_path=workspace.path,
+                    command_timeout_seconds=request.command_timeout_seconds,
+                )
+                setup_result = test_executor.run_setup_commands()
+                if not setup_result.passed:
+                    raise AgentRunStartError("Setup phase failed.")
+                test_executor.run_baseline_tests(run_setup=False)
                 listed_files = self._run_step(
                     steps,
                     request.max_steps,
@@ -200,18 +220,23 @@ class AgentRunOrchestrator:
                 )
                 generated_patch_id = submitted_patch.generated_patch_id
                 changed_files = submitted_patch.changed_files
+                post_patch_result = test_executor.run_post_patch_tests()
+                if not post_patch_result.passed:
+                    raise AgentRunStartError("Post-patch test phase failed.")
 
             self._mark_run_status(run, RUN_STATUS_COMPLETED)
+            metric = EvaluationService(db=self._db, agent_run_id=run.id).evaluate()
             self._log_event(
                 run,
                 "agent_run_completed",
                 {
                     "step_count": len(steps),
                     "generated_patch_id": str(generated_patch_id) if generated_patch_id else None,
+                    "evaluation_metric_id": str(metric.id),
                     "changed_files": changed_files,
                 },
             )
-        except (AgentRunStartError, OSError, RuntimeError, ToolError, ValueError) as exc:
+        except (AgentRunStartError, OSError, RuntimeError, ToolError, TestExecutionError, ValueError) as exc:
             error_message = str(exc)
             self._mark_run_status(run, RUN_STATUS_FAILED)
             self._log_event(
@@ -254,6 +279,13 @@ class AgentRunOrchestrator:
         run.status = status
         if status in {RUN_STATUS_COMPLETED, RUN_STATUS_FAILED}:
             run.completed_at = datetime.now(UTC)
+        self._db.add(run)
+        self._db.commit()
+        self._db.refresh(run)
+
+    def _set_run_workspace(self, run: AgentRun, workspace: PreparedWorkspace) -> None:
+        run.workspace_id = workspace.workspace_id
+        run.workspace_path = str(workspace.path)
         self._db.add(run)
         self._db.commit()
         self._db.refresh(run)

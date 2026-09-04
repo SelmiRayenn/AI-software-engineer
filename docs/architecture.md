@@ -47,6 +47,24 @@ The sandbox layer will isolate each benchmark run. A run should clone or mount t
 
 Agents do not get unrestricted shell access. The backend exposes an internal tool layer for repository inspection and edits inside a prepared sandbox workspace: file listing, code search, file reads/writes, allowed test commands, diff inspection, and patch submission. Each tool call enforces workspace path boundaries and writes an `agent_tool_call` event to `agent_events`.
 
+### Patch Management
+
+Generated patch handling is separate from gold solution storage. The patch service reads current
+workspace diffs, validates and applies unified diffs, rejects traversal/gold/binary patch inputs,
+enforces patch size limits, and stores generated agent patches on `generated_patches`.
+
+### Test Execution
+
+The test execution layer runs benchmark-defined setup and test commands for each agent run. It
+records setup, baseline, and post-patch results in `test_results`, captures stdout/stderr with size
+limits, and rejects commands that are not configured on the benchmark task.
+
+### Evaluation Metrics
+
+The evaluation layer summarizes completed runs into `evaluation_metrics`. It compares inspected
+files against hidden gold changed files, checks generated patch scope, reads post-patch test
+outcomes, aggregates model token/cost events, and records runtime from run timestamps.
+
 ### Agent Provider Abstraction
 
 The backend contains a provider interface boundary under `app.model_providers`. Mock, OpenAI, Anthropic, and local adapters share the same `ModelProvider` contract and return normalized content, tool calls, token usage, cost estimates, latency, and optional raw provider responses.
@@ -57,10 +75,11 @@ The backend contains a provider interface boundary under `app.model_providers`. 
 2. The backend creates a run and provisions an isolated Docker sandbox.
 3. The selected model provider receives the issue context and repository state instructions.
 4. The provider returns a candidate patch.
-5. The sandbox applies the patch and executes tests.
-6. The platform stores the patch, logs, pass/fail status, cost, latency, and token usage.
-7. A human reviewer approves, rejects, or annotates the run.
-8. Approved runs contribute to benchmark metrics and leaderboard-style reporting.
+5. The platform records baseline test results before applying the generated patch.
+6. The sandbox applies the patch and executes post-patch tests.
+7. The platform stores the patch, logs, pass/fail status, cost, latency, and token usage.
+8. A human reviewer approves, rejects, or annotates the run.
+9. Approved runs contribute to benchmark metrics and leaderboard-style reporting.
 
 ## First Working Version
 

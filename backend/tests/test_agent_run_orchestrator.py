@@ -1,5 +1,6 @@
 import json
 import subprocess
+import sys
 from collections.abc import Generator
 from pathlib import Path
 from uuid import UUID
@@ -19,7 +20,16 @@ from app.db.base import Base
 from app.db.session import get_db
 from app.main import app
 from app.model_providers import ModelProviderFactory
-from app.models import AgentEvent, AgentRun, BenchmarkTask, GeneratedPatch, GoldPatch, Repository
+from app.models import (
+    AgentEvent,
+    AgentRun,
+    BenchmarkTask,
+    EvaluationMetric,
+    GeneratedPatch,
+    GoldPatch,
+    Repository,
+)
+from app.models import TestResult as ResultRecord
 
 engine = create_engine(
     "sqlite+pysqlite:///:memory:",
@@ -162,6 +172,32 @@ def test_start_creates_agent_run_row_and_logs_events(client: TestClient) -> None
     assert "agent_run_completed" in event_types
 
 
+def test_start_records_setup_baseline_and_post_patch_results(client: TestClient) -> None:
+    setup_command = python_command("print('setup from orchestrator')")
+    test_command = python_command("print('tests from orchestrator')")
+    task_id = create_task(
+        status="ready",
+        setup_commands=[setup_command],
+        test_commands=[test_command],
+    )
+
+    response = client.post(f"/agent-runs/{task_id}/start", json={"model_provider": "mock"})
+
+    assert response.status_code == 200
+    run_id = UUID(response.json()["id"])
+    with TestingSessionLocal() as db:
+        results = list(
+            db.scalars(
+                select(ResultRecord)
+                .where(ResultRecord.agent_run_id == run_id)
+                .order_by(ResultRecord.created_at.asc())
+            ).all()
+        )
+
+    assert sorted(result.phase for result in results) == ["baseline", "post_patch", "setup"]
+    assert all(result.passed for result in results)
+
+
 def test_start_uses_mock_model_provider_and_hides_gold_data(client: TestClient) -> None:
     task_id = create_task(status="ready", gold_patch_text="HIDDEN GOLD PATCH")
 
@@ -194,6 +230,21 @@ def test_noop_run_persists_empty_generated_patch(client: TestClient) -> None:
         assert patch is not None
         assert patch.patch_text == ""
         assert patch.changed_files == []
+
+
+def test_completed_run_persists_evaluation_metric(client: TestClient) -> None:
+    task_id = create_task(status="ready")
+
+    response = client.post(f"/agent-runs/{task_id}/start", json={"model_provider": "mock"})
+
+    assert response.status_code == 200
+    run_id = UUID(response.json()["id"])
+    with TestingSessionLocal() as db:
+        metric = db.scalar(select(EvaluationMetric).where(EvaluationMetric.agent_run_id == run_id))
+        assert metric is not None
+        assert metric.tests_passed is True
+        assert metric.tokens_used == 0
+        assert metric.estimated_cost == 0.0
 
 
 def test_start_marks_run_failed_on_workspace_error(
@@ -237,6 +288,8 @@ def test_start_stops_after_max_steps(client: TestClient) -> None:
 def create_task(
     *,
     status: str,
+    setup_commands: list[str] | None = None,
+    test_commands: list[str] | None = None,
     gold_patch_text: str = "diff --git a/src/calculator.py b/src/calculator.py\n",
 ) -> str:
     with TestingSessionLocal() as db:
@@ -260,8 +313,8 @@ def create_task(
             base_commit="1111111111111111111111111111111111111111",
             fix_commit="2222222222222222222222222222222222222222",
             linked_pr_url="https://github.com/example/calculator/pull/43",
-            setup_commands=[],
-            test_commands=["pytest"],
+            setup_commands=setup_commands or [],
+            test_commands=test_commands or [python_command("print('ok')")],
             status=status,
         )
         db.add(task)
@@ -276,6 +329,11 @@ def create_task(
         )
         db.commit()
         return str(task.id)
+
+
+def python_command(code: str) -> str:
+    escaped = code.replace('"', '\\"')
+    return f'"{sys.executable}" -c "{escaped}"'
 
 
 def init_git_repo(workspace: Path) -> None:

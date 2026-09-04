@@ -31,6 +31,8 @@ class AgentRun(UUIDPrimaryKeyMixin, Base):
     model_provider: Mapped[str] = mapped_column(String(100), index=True, nullable=False)
     model_name: Mapped[str] = mapped_column(String(255), nullable=False)
     status: Mapped[str] = mapped_column(String(50), default="queued", index=True, nullable=False)
+    workspace_id: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    workspace_path: Mapped[str | None] = mapped_column(String(2048), nullable=True)
     started_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
         server_default=func.now(),

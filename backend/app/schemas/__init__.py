@@ -29,8 +29,16 @@ from app.schemas.github import (
 from app.schemas.gold_patch import GoldPatchCreate, GoldPatchRead
 from app.schemas.health import HealthResponse
 from app.schemas.human_review import HumanReviewCreate, HumanReviewRead
+from app.schemas.patch import (
+    GeneratedPatchResponse,
+    PatchApplyRequest,
+    PatchApplyResponse,
+    PatchSizeStatsRead,
+    WorkspaceDiffRead,
+)
 from app.schemas.repository import RepositoryCreate, RepositoryRead
 from app.schemas.sandbox import SandboxCommandResult, SandboxRunRequest, SandboxRunResponse
+from app.schemas.test_execution import TestExecutionRequest, TestExecutionResponse
 from app.schemas.test_result import TestResultCreate, TestResultRead
 
 __all__ = [
@@ -51,6 +59,7 @@ __all__ = [
     "EvaluationMetricRead",
     "GeneratedPatchCreate",
     "GeneratedPatchRead",
+    "GeneratedPatchResponse",
     "GitHubBenchmarkTaskHint",
     "GitHubIssuePreview",
     "GitHubIssuePreviewRequest",
@@ -64,11 +73,17 @@ __all__ = [
     "HealthResponse",
     "HumanReviewCreate",
     "HumanReviewRead",
+    "PatchApplyRequest",
+    "PatchApplyResponse",
+    "PatchSizeStatsRead",
     "RepositoryCreate",
     "RepositoryRead",
     "SandboxCommandResult",
     "SandboxRunRequest",
     "SandboxRunResponse",
+    "TestExecutionRequest",
+    "TestExecutionResponse",
     "TestResultCreate",
     "TestResultRead",
+    "WorkspaceDiffRead",
 ]

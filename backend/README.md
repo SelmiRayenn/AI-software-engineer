@@ -42,6 +42,14 @@ GET  /api/v1/agent-runs
 POST /api/v1/agent-runs
 POST /sandbox/run
 POST /agent-runs/{benchmark_task_id}/start
+GET  /agent-runs/{run_id}/diff
+GET  /agent-runs/{run_id}/patch
+POST /agent-runs/{run_id}/patch/apply
+POST /agent-runs/{run_id}/tests/baseline
+POST /agent-runs/{run_id}/tests/post-patch
+GET  /agent-runs/{run_id}/tests
+POST /agent-runs/{run_id}/evaluate
+GET  /agent-runs/{run_id}/metrics
 POST /github/preview-issue
 POST /github/preview-pr
 POST /benchmark-tasks/from-github
@@ -59,3 +67,9 @@ The GitHub benchmark creation endpoint turns a real issue plus merged fix PR int
 Benchmark tasks must pass validation before they can be marked ready for agent use. The validation endpoint checks repository metadata, issue and PR numbers, base commit, setup/test commands, hidden gold data, changed files, and task lifecycle status.
 
 The agent run start endpoint executes the current scripted orchestrator skeleton with a mock provider and controlled workspace tools. See `docs/agent-runs.md` from the repository root.
+
+The patch endpoints inspect active agent-run workspaces, apply safe unified diffs, and store generated patches separately from hidden gold solutions. See `docs/patch-management.md` from the repository root.
+
+The test execution endpoints run configured setup, baseline, and post-patch commands for an active agent run and store each command result. See `docs/test-execution.md` from the repository root.
+
+The evaluation endpoints calculate and return idempotent benchmark metrics for completed agent runs. See `docs/evaluation-metrics.md` from the repository root.
