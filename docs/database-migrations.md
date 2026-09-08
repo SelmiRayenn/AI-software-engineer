@@ -64,7 +64,7 @@ alembic heads
 
 ## Initial Migration
 
-The first migration, `20260904_0001_initial_schema`, creates the current schema:
+The first migration, `20260904_0001_initial_schema`, creates the foundation schema:
 
 - `repositories`
 - `benchmark_tasks`
@@ -79,6 +79,17 @@ The first migration, `20260904_0001_initial_schema`, creates the current schema:
 It includes the current task, run, patch, review, test, event, metric, repository, and gold solution
 tables, plus recently added fields such as `pull_request_number`, `workspace_id`, and
 `workspace_path`.
+
+## Repository Index Migration
+
+Migration `20260905_0002` adds the repository indexing tables `repository_indexes`, `indexed_files`,
+and `indexed_symbols` without recreating the existing schema. See `docs/repository-indexing.md` for
+the indexing API and workspace requirements.
+
+Migration `20260905_0003` adds `indexed_chunks` and `chunk_embeddings` for optional semantic
+retrieval. It follows `20260905_0002` and preserves existing indexes. Apply it with the same
+`python scripts/apply_migrations.py` command. Chunks and vectors are populated by an explicit
+embedding build, not by the schema migration. No PostgreSQL vector extension is required.
 
 ## Auto-Create Tables
 

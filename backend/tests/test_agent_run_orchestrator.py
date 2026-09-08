@@ -16,6 +16,7 @@ from app.api.routes.agent_run_orchestration import (
     get_model_provider_factory,
     get_workspace_preparer,
 )
+from app.core.config import settings
 from app.db.base import Base
 from app.db.session import get_db
 from app.main import app
@@ -24,12 +25,15 @@ from app.models import (
     AgentEvent,
     AgentRun,
     BenchmarkTask,
+    ChunkEmbedding,
     EvaluationMetric,
     GeneratedPatch,
     GoldPatch,
     Repository,
+    RepositoryIndex,
 )
 from app.models import TestResult as ResultRecord
+from app.sandbox import SandboxWorkspaceManager
 
 engine = create_engine(
     "sqlite+pysqlite:///:memory:",
@@ -198,6 +202,58 @@ def test_start_records_setup_baseline_and_post_patch_results(client: TestClient)
     assert all(result.passed for result in results)
 
 
+@pytest.mark.parametrize("auto_embed", [False, True])
+def test_managed_run_creates_repository_index_before_agent_loop(
+    client: TestClient,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    auto_embed: bool,
+) -> None:
+    monkeypatch.setattr(settings, "embedding_auto_build", auto_embed)
+    monkeypatch.setattr(settings, "embeddings_provider", "mock")
+    monkeypatch.setattr(settings, "enable_real_embeddings", False)
+    manager = SandboxWorkspaceManager(
+        workspace_root=tmp_path / "sandboxes",
+        retain_workspaces=True,
+    )
+    metadata = manager.create_workspace(prefix="agent-run")
+    metadata.repo_path.mkdir()
+    (metadata.repo_path / "README.md").write_text("# Indexed run\n", encoding="utf-8")
+    (metadata.repo_path / "calculator.py").write_text(
+        "def add(left, right):\n    return left + right\n",
+        encoding="utf-8",
+    )
+    init_git_repo(metadata.repo_path)
+    app.dependency_overrides[get_workspace_preparer] = lambda: ManagedWorkspacePreparer(
+        manager,
+        metadata,
+    )
+    task_id = create_task(status="ready")
+
+    response = client.post(f"/agent-runs/{task_id}/start", json={"model_provider": "mock"})
+
+    assert response.status_code == 200
+    assert response.json()["status"] == "completed"
+    run_id = UUID(response.json()["id"])
+    with TestingSessionLocal() as db:
+        index = db.scalar(select(RepositoryIndex).where(RepositoryIndex.agent_run_id == run_id))
+        event = db.scalar(
+            select(AgentEvent).where(
+                AgentEvent.agent_run_id == run_id,
+                AgentEvent.event_type == "repository_index_created",
+            )
+        )
+
+        assert db.scalar(select(func.count()).select_from(ChunkEmbedding)) == (
+            2 if auto_embed else 0
+        )
+
+    assert index is not None
+    assert index.file_count == 2
+    assert event is not None
+    assert event.payload_json["file_count"] == 2
+
+
 def test_start_uses_mock_model_provider_and_hides_gold_data(client: TestClient) -> None:
     task_id = create_task(status="ready", gold_patch_text="HIDDEN GOLD PATCH")
 
@@ -318,9 +374,7 @@ def test_run_configuration_and_prompt_preview_are_stored_and_inspectable(
     assert response.status_code == 200
     payload = response.json()
     assert payload["run_config"] == request_payload
-    assert payload["prompt_preview"]["issue_context_prompt"].startswith(
-        "Fix this benchmark issue."
-    )
+    assert payload["prompt_preview"]["issue_context_prompt"].startswith("Fix this benchmark issue.")
     assert "- run_tests" not in payload["prompt_preview"]["tool_use_instructions"]
 
     run_id = UUID(payload["id"])
@@ -409,3 +463,24 @@ def run_git(workspace: Path, *args: str) -> None:
         check=False,
     )
     assert completed.returncode == 0, completed.stderr
+
+
+class ManagedWorkspacePreparer:
+    def __init__(self, manager, metadata) -> None:
+        self.manager = manager
+        self.metadata = metadata
+
+    def prepare(
+        self,
+        *,
+        repository_url: str,
+        base_commit: str,
+        command_timeout_seconds: int,
+    ) -> PreparedWorkspace:
+        return PreparedWorkspace(
+            workspace_id=self.metadata.workspace_id,
+            path=self.metadata.repo_path,
+            workspace_path=self.metadata.workspace_path,
+            metadata=self.metadata,
+            cleanup=lambda: self.manager.cleanup_workspace(self.metadata),
+        )

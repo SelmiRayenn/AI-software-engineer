@@ -14,6 +14,8 @@ from sqlalchemy.orm import Session
 from app.core.test_phases import TEST_PHASE_POST_PATCH
 from app.models import AgentEvent, AgentRun, TestResult
 from app.patches import PatchService
+from app.repository_indexing import RelevantFilesResult, RepositoryRetrievalService
+from app.repository_indexing.errors import RepositoryIndexError
 
 
 class ToolError(RuntimeError):
@@ -119,6 +121,40 @@ class AgentWorkspaceTools:
         self._max_list_files = max_list_files
         self._command_timeout_seconds = command_timeout_seconds
         self._max_log_bytes = max_log_bytes
+
+    def retrieve_relevant_files(
+        self,
+        query: str,
+        limit: int = 10,
+        semantic: bool = False,
+    ) -> RelevantFilesResult:
+        def operation(metadata: _ToolCallMetadata) -> RelevantFilesResult:
+            try:
+                result = RepositoryRetrievalService(
+                    db=self._db,
+                    agent_run_id=self._agent_run_id,
+                ).retrieve(query, limit=limit, semantic=semantic)
+            except (TypeError, ValueError) as exc:
+                raise ToolSafetyError(str(exc)) from exc
+            except RepositoryIndexError as exc:
+                raise ToolError(str(exc)) from exc
+
+            metadata.files_read.extend(file.file_path for file in result.files)
+            metadata.extra.update(
+                {
+                    "result_count": len(result.files),
+                    "result_limit": limit,
+                    "retrieval_mode": result.retrieval_mode,
+                    "fallback_reason": result.fallback_reason,
+                }
+            )
+            return result
+
+        return self._execute_tool(
+            "retrieve_relevant_files",
+            {"query": query, "limit": limit, "semantic": semantic},
+            operation,
+        )
 
     def list_files(self, path: str = ".") -> FileListingResult:
         def operation(metadata: _ToolCallMetadata) -> FileListingResult:
@@ -378,9 +414,7 @@ class AgentWorkspaceTools:
         relative_path = self._normalize_relative_path(raw_path)
         self._reject_protected_gold_path(relative_path)
 
-        candidate = (self._workspace_path / Path(*relative_path.parts)).resolve(
-            strict=must_exist
-        )
+        candidate = (self._workspace_path / Path(*relative_path.parts)).resolve(strict=must_exist)
         if not candidate.is_relative_to(self._workspace_path):
             raise ToolSafetyError("Path resolves outside the workspace.")
 

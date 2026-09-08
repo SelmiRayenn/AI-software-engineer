@@ -15,6 +15,7 @@ from app import crud
 from app.agents.loop import AgentLoop, registered_tool_names
 from app.agents.prompts import render_agent_prompts
 from app.agents.tools import AgentWorkspaceTools, ToolError
+from app.core.config import settings
 from app.core.run_statuses import (
     RUN_STATUS_COMPLETED,
     RUN_STATUS_FAILED,
@@ -25,6 +26,8 @@ from app.core.task_statuses import TASK_STATUS_READY
 from app.evaluation import EvaluationService
 from app.model_providers import ModelProvider, ModelProviderFactory
 from app.models import AgentEvent, AgentRun, BenchmarkTask, GeneratedPatch
+from app.repository_indexing import RepositoryIndexService
+from app.repository_indexing.semantic import RepositoryEmbeddingsService
 from app.sandbox import SandboxWorkspaceManager, SandboxWorkspaceSafetyError
 from app.sandbox.workspace import SandboxWorkspaceMetadata
 from app.schemas.agent_run import (
@@ -150,9 +153,7 @@ class AgentRunOrchestrator:
         prompts = render_agent_prompts(
             task=task,
             repository=repository,
-            allowed_tools=registered_tool_names(
-                enable_test_tool=run_config.enable_test_tool
-            ),
+            allowed_tools=registered_tool_names(enable_test_tool=run_config.enable_test_tool),
             configured_test_commands=list(task.test_commands or []),
             max_steps=run_config.max_steps,
             max_tool_errors=run_config.max_tool_errors,
@@ -220,6 +221,7 @@ class AgentRunOrchestrator:
                 if not setup_result.passed:
                     raise AgentRunStartError("Setup phase failed.")
                 test_executor.run_baseline_tests(run_setup=False)
+                self._create_repository_index(run, workspace)
                 loop_result = AgentLoop(
                     db=self._db,
                     agent_run=run,
@@ -255,7 +257,14 @@ class AgentRunOrchestrator:
                     "changed_files": changed_files,
                 },
             )
-        except (AgentRunStartError, OSError, RuntimeError, ToolError, TestExecutionError, ValueError) as exc:
+        except (
+            AgentRunStartError,
+            OSError,
+            RuntimeError,
+            ToolError,
+            TestExecutionError,
+            ValueError,
+        ) as exc:
             error_message = str(exc)
             self._mark_run_status(run, RUN_STATUS_FAILED)
             self._log_event(
@@ -312,6 +321,36 @@ class AgentRunOrchestrator:
         self._db.commit()
         self._db.refresh(run)
 
+    def _create_repository_index(
+        self,
+        run: AgentRun,
+        workspace: PreparedWorkspace,
+    ) -> None:
+        # Test and legacy preparers may not represent a managed sandbox workspace.
+        if workspace.metadata is None:
+            return
+        manager = SandboxWorkspaceManager(
+            workspace_root=workspace.metadata.workspace_root,
+            retain_workspaces=workspace.metadata.retain,
+        )
+        index = RepositoryIndexService(
+            db=self._db,
+            agent_run_id=run.id,
+            workspace_manager=manager,
+        ).create_index()
+        self._log_event(
+            run,
+            "repository_index_created",
+            {
+                "repository_index_id": str(index.id),
+                "file_count": index.file_count,
+                "total_size_bytes": index.total_size_bytes,
+                "checksum": index.checksum,
+            },
+        )
+        if settings.embedding_auto_build:
+            RepositoryEmbeddingsService(db=self._db, agent_run_id=run.id).build()
+
     def _log_event(self, run: AgentRun, event_type: str, payload: dict[str, object]) -> None:
         self._db.add(
             AgentEvent(
@@ -321,6 +360,7 @@ class AgentRunOrchestrator:
             )
         )
         self._db.commit()
+
 
 def _run_workspace_command(
     args: list[str],

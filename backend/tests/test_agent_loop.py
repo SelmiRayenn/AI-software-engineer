@@ -2,6 +2,7 @@ import json
 import subprocess
 from collections.abc import Generator
 from pathlib import Path
+from unittest.mock import Mock
 
 import pytest
 from sqlalchemy import create_engine, select
@@ -13,6 +14,7 @@ from app.agents.tools import AgentWorkspaceTools
 from app.db.base import Base
 from app.model_providers import MockModelProvider, ModelProviderResponse, ModelToolCall
 from app.models import AgentEvent, AgentRun, BenchmarkTask, GeneratedPatch, GoldPatch, Repository
+from app.repository_indexing import RelevantFilesResult
 from app.schemas.agent_run import AgentRunConfig
 
 engine = create_engine(
@@ -75,6 +77,8 @@ def test_loop_executes_mock_tool_calls_and_logs_events(db: Session, workspace: P
     assert event_types.count("tool_call_requested") == 3
     assert event_types.count("tool_call_completed") == 3
     assert "patch_submitted" in event_types
+    assert "retrieve_relevant_files" in loop.registered_tool_names()
+    assert loop.tool_definitions()[0].name == "retrieve_relevant_files"
 
 
 def test_unknown_tool_is_rejected(db: Session, workspace: Path) -> None:
@@ -94,6 +98,31 @@ def test_unknown_tool_is_rejected(db: Session, workspace: Path) -> None:
     assert result.steps[0].error_message == "Unknown tool: delete_repository"
     failed_event = event_by_type(db, "tool_call_failed")
     assert failed_event.payload_json["tool_name"] == "delete_repository"
+
+
+def test_loop_dispatches_semantic_retrieval_and_observes_fallback(db, workspace, monkeypatch):
+    retrieve = Mock(
+        return_value=RelevantFilesResult(
+            query="wallet", files=[], fallback_reason="embeddings_unavailable"
+        )
+    )
+    monkeypatch.setattr("app.repository_indexing.RepositoryRetrievalService.retrieve", retrieve)
+    provider = MockModelProvider(
+        responses=[
+            response("retrieve_relevant_files", "retrieve", {"query": "wallet", "semantic": True}),
+            response("submit_patch", "submit"),
+        ]
+    )
+    loop = create_loop(db, workspace, provider=provider)
+    result = loop.run()
+    assert result.stop_reason == "patch_submitted"
+    retrieve.assert_called_once_with("wallet", limit=10, semantic=True)
+    assert result.steps[0].summary["fallback_reason"] == "embeddings_unavailable"
+    assert any(
+        "embeddings_unavailable" in message.content
+        for message in result.messages
+        if message.role == "tool"
+    )
 
 
 def test_malformed_tool_call_is_rejected(db: Session, workspace: Path) -> None:

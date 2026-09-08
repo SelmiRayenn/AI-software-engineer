@@ -162,6 +162,8 @@ Included now:
 - Swappable model provider abstraction for mock, OpenAI, Anthropic, and local providers
 - Configurable agent prompts and iterative tool loop with reproducible run settings
 - Opt-in OpenAI Responses API integration, disabled by default behind a safety flag
+- Deterministic repository file/symbol indexes and path/text/symbol search without embeddings
+- Optional chunk embeddings and hybrid semantic retrieval, with real embedding calls disabled by default
 - Patch management for sandbox workspace diffs, safe patch application, and generated patch records
 - Baseline and post-patch test execution with stored command logs
 - First evaluation metrics engine for localization, patches, tests, cost, and runtime
@@ -199,6 +201,18 @@ redacted from event logs and stored prompt previews. Run configuration controls 
 limits, issue comments, test-tool access, and scripted versus tool-loop execution.
 
 See `docs/agent-loop.md` for the tool contracts, stop conditions, and event trace.
+
+## Repository Indexing
+
+Repository indexes can be created for retained managed run workspaces using
+`POST /agent-runs/{run_id}/index`, then queried through `/index/files` and `/index/search`.
+Managed runs also create their index before the agent loop starts. Lexical retrieval is the default.
+To add optional semantic retrieval, apply migrations and build the stored index's embeddings with
+`POST /agent-runs/{run_id}/index/embeddings`, then request `semantic=true` in index search or
+`retrieve_relevant_files`. Mock embeddings work offline; OpenAI embeddings additionally require
+`EMBEDDINGS_PROVIDER=openai`, `ENABLE_REAL_EMBEDDINGS=true`, and `OPENAI_API_KEY`.
+See [repository indexing](docs/repository-indexing.md) for configuration, retrieval fallback,
+retention, extraction, and safety details.
 
 ## Evaluation Metrics
 

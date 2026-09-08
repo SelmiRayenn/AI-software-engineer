@@ -18,6 +18,7 @@ from app.agents.tools import (
     FileListingResult,
     FileReadResult,
     FileWriteResult,
+    RelevantFilesResult,
     SubmittedPatchResult,
     TestCommandResult,
 )
@@ -32,6 +33,7 @@ from app.models import AgentEvent, AgentRun, BenchmarkTask, Repository
 from app.schemas.agent_run import AgentRunConfig, AgentRunTraceStep
 
 BASE_TOOL_NAMES = (
+    "retrieve_relevant_files",
     "list_files",
     "search_code",
     "read_file",
@@ -44,7 +46,7 @@ BASE_TOOL_NAMES = (
 def registered_tool_names(*, enable_test_tool: bool) -> list[str]:
     names = list(BASE_TOOL_NAMES)
     if enable_test_tool:
-        names.insert(4, "run_tests")
+        names.insert(5, "run_tests")
     return names
 
 
@@ -324,6 +326,29 @@ class AgentLoop:
         test_commands = list(self._benchmark_task.test_commands or [])
         definitions = [
             ToolDefinition(
+                name="retrieve_relevant_files",
+                description=(
+                    "Search the current run's deterministic repository index for likely relevant "
+                    "files before reading or editing."
+                ),
+                input_schema=_object_schema(
+                    required={"query": {"type": "string", "minLength": 1, "maxLength": 200}},
+                    optional={
+                        "limit": {
+                            "type": "integer",
+                            "minimum": 1,
+                            "maximum": 50,
+                            "default": 10,
+                        },
+                        "semantic": {
+                            "type": "boolean",
+                            "default": False,
+                            "description": "Use optional stored embeddings; otherwise fall back to lexical search.",
+                        },
+                    },
+                ),
+            ),
+            ToolDefinition(
                 name="list_files",
                 description="List workspace files under an optional relative directory.",
                 input_schema=_object_schema(optional={"path": {"type": "string"}}),
@@ -364,7 +389,7 @@ class AgentLoop:
         ]
         if self._config.enable_test_tool:
             definitions.insert(
-                4,
+                5,
                 ToolDefinition(
                     name="run_tests",
                     description="Run one test command configured by the benchmark task.",
@@ -382,6 +407,11 @@ class AgentLoop:
 
     def _build_tool_contracts(self) -> dict[str, _ToolContract]:
         contracts = {
+            "retrieve_relevant_files": _ToolContract(
+                self._tools.retrieve_relevant_files,
+                {"query": str},
+                {"limit": int, "semantic": bool},
+            ),
             "list_files": _ToolContract(self._tools.list_files, {}, {"path": str}),
             "search_code": _ToolContract(
                 self._tools.search_code,
@@ -435,17 +465,14 @@ class AgentLoop:
             )
         missing = sorted(set(contract.required) - set(arguments))
         if missing:
-            raise MalformedToolCallError(
-                f"Missing arguments for {name}: {', '.join(missing)}"
-            )
+            raise MalformedToolCallError(f"Missing arguments for {name}: {', '.join(missing)}")
         for argument_name, expected_type in {**contract.required, **contract.optional}.items():
             if argument_name in arguments and not isinstance(
                 arguments[argument_name],
                 expected_type,
             ):
                 raise MalformedToolCallError(
-                    f"Argument {argument_name} for {name} must be "
-                    f"{expected_type.__name__}."
+                    f"Argument {argument_name} for {name} must be {expected_type.__name__}."
                 )
 
         return _ParsedToolCall(
@@ -609,6 +636,13 @@ def _result_payload(result: Any) -> dict[str, Any]:
 
 
 def _result_summary(result: Any) -> dict[str, Any]:
+    if isinstance(result, RelevantFilesResult):
+        return {
+            "result_count": len(result.files),
+            "files": [file.file_path for file in result.files],
+            "retrieval_mode": result.retrieval_mode,
+            "fallback_reason": result.fallback_reason,
+        }
     if isinstance(result, FileListingResult):
         return {"file_count": len(result.files), "truncated": result.truncated}
     if isinstance(result, CodeSearchResult):
@@ -638,7 +672,9 @@ def _result_summary(result: Any) -> dict[str, Any]:
 def _trace_step(tool_name: str, result: Any, duration_seconds: float) -> AgentRunTraceStep:
     files_read: list[str] = []
     files_modified: list[str] = []
-    if isinstance(result, FileReadResult):
+    if isinstance(result, RelevantFilesResult):
+        files_read = [file.file_path for file in result.files]
+    elif isinstance(result, FileReadResult):
         files_read = [result.file_path]
     elif isinstance(result, CodeSearchResult):
         files_read = list(dict.fromkeys(match.file_path for match in result.matches))

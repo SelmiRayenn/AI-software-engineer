@@ -10,11 +10,12 @@ renderer receives only agent-visible task fields and explicit run configuration.
 ## Execution Flow
 
 For each ready benchmark task, the orchestrator prepares an isolated checkout and runs configured
-setup and baseline test commands. It then starts `AgentLoop` with:
+setup and baseline test commands. Managed sandboxes are indexed before the model is called. It then
+starts `AgentLoop` with:
 
 - agent-visible repository and issue context
 - the selected model provider
-- up to seven registered workspace tools
+- up to eight registered workspace tools
 - a maximum model/tool step count
 - a maximum cumulative tool error count
 
@@ -60,6 +61,7 @@ executable tool registry. Setup, baseline, and post-patch orchestration phases r
 
 The model can request only:
 
+- `retrieve_relevant_files`
 - `list_files`
 - `search_code`
 - `read_file`
@@ -71,11 +73,21 @@ The model can request only:
 Each tool retains the workspace boundary, path traversal, hidden gold path, file-size, output-size,
 and configured-test-command checks documented in the controlled tool and sandbox services.
 
+`retrieve_relevant_files` searches only the deterministic index associated with the current run.
+It returns ranked path, language, file kind, matching symbols and snippets, score, and byte size. The
+query must contain 1-200 characters; `limit` defaults to 10 and is capped at 50. Retrieval results
+are logged as files read so localization metrics can account for index-assisted inspection.
+The optional `semantic=true` argument uses compatible chunk embeddings and adds semantic scores
+to lexical ranking. Missing embeddings or an unavailable provider keep lexical search available;
+the observation reports the fallback reason. Operators can set `EMBEDDING_AUTO_BUILD=true` to
+prepare embeddings before the loop. Real embedding calls additionally require their own explicit
+`ENABLE_REAL_EMBEDDINGS=true` flag. See [repository indexing](repository-indexing.md#optional-embeddings).
+
 ## Instructions And Hidden Data
 
-The initial conversation tells the model to inspect before editing, keep changes minimal, avoid
-unrelated files, run tests when useful, and submit only when ready for human review. It explicitly
-forbids requesting gold solution data or publishing changes.
+The initial conversation tells the model to retrieve likely files first, inspect before editing,
+keep changes small and targeted, avoid unrelated files, run tests when useful, and submit only when
+ready for human review. It explicitly forbids requesting gold solution data or publishing changes.
 
 The task context contains repository metadata, base commit, issue title/body, and optionally public
 issue comments. Tool instructions list the enabled tools, configured tests, limits, and exact patch

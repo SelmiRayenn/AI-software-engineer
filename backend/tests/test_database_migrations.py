@@ -2,7 +2,9 @@ from __future__ import annotations
 
 from pathlib import Path
 
+from alembic.autogenerate import compare_metadata
 from alembic.config import Config
+from alembic.migration import MigrationContext
 from sqlalchemy import create_engine, inspect
 
 from alembic import command
@@ -23,6 +25,11 @@ EXPECTED_TABLES = {
     "human_reviews",
     "repositories",
     "test_results",
+    "repository_indexes",
+    "indexed_files",
+    "indexed_symbols",
+    "indexed_chunks",
+    "chunk_embeddings",
 }
 
 
@@ -77,7 +84,52 @@ def test_initial_migration_upgrades_empty_sqlite_database(tmp_path: Path) -> Non
     assert "pull_request_number" in _column_names(inspector, "benchmark_tasks")
     assert "workspace_id" in _column_names(inspector, "agent_runs")
     assert "workspace_path" in _column_names(inspector, "agent_runs")
+    with engine.connect() as connection:
+        assert compare_metadata(MigrationContext.configure(connection), Base.metadata) == []
+    engine.dispose()
+
+
+def test_repository_index_migration_upgrades_and_downgrades_existing_schema(tmp_path: Path) -> None:
+    database_url = f"sqlite:///{(tmp_path / 'index-migration.db').as_posix()}"
+    config = make_alembic_config(database_url)
+    command.upgrade(config, "20260904_0001")
+    engine = create_engine(database_url)
+    with engine.begin() as connection:
+        connection.exec_driver_sql(
+            "INSERT INTO repositories (id, owner, name, url, default_branch) "
+            "VALUES ('11111111111111111111111111111111', 'example', 'repo', "
+            "'https://github.com/example/repo', 'main')"
+        )
+    command.upgrade(config, "head")
+    inspector = inspect(engine)
+    assert {"repository_indexes", "indexed_files", "indexed_symbols"}.issubset(
+        inspector.get_table_names()
+    )
+    assert "checksum" in _column_names(inspector, "indexed_files")
+    assert "line_number" in _column_names(inspector, "indexed_symbols")
+    command.downgrade(config, "20260904_0001")
+    assert "repository_indexes" not in inspect(engine).get_table_names()
+    with engine.connect() as connection:
+        assert connection.exec_driver_sql("SELECT name FROM repositories").scalar_one() == "repo"
+    engine.dispose()
 
 
 def _column_names(inspector, table_name: str) -> set[str]:
     return {column["name"] for column in inspector.get_columns(table_name)}
+
+
+def test_embedding_migration_upgrades_and_downgrades_index_schema(tmp_path: Path) -> None:
+    database_url = f"sqlite:///{(tmp_path / 'embeddings-migration.db').as_posix()}"
+    config = make_alembic_config(database_url)
+    command.upgrade(config, "20260905_0002")
+    engine = create_engine(database_url)
+    command.upgrade(config, "head")
+    assert {"indexed_chunks", "chunk_embeddings"}.issubset(inspect(engine).get_table_names())
+    assert {"dimensions", "vector", "input_checksum"}.issubset(
+        _column_names(inspect(engine), "chunk_embeddings")
+    )
+    command.downgrade(config, "20260905_0002")
+    assert "indexed_files" in inspect(engine).get_table_names()
+    assert "chunk_embeddings" not in inspect(engine).get_table_names()
+    assert "indexed_chunks" not in inspect(engine).get_table_names()
+    engine.dispose()

@@ -24,6 +24,8 @@ dist/
 # Docker and local data
 postgres_data/
 sandbox-workspaces/
+/output/
+/tmp/
 *.db
 *.sqlite
 *.sqlite3

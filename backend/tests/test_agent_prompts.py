@@ -10,7 +10,13 @@ def test_prompt_rendering_includes_issue_repository_tools_and_constraints() -> N
     prompts = render_agent_prompts(
         task=task,
         repository=repository,
-        allowed_tools=["list_files", "read_file", "run_tests", "submit_patch"],
+        allowed_tools=[
+            "retrieve_relevant_files",
+            "list_files",
+            "read_file",
+            "run_tests",
+            "submit_patch",
+        ],
         configured_test_commands=["pytest -q"],
         max_steps=12,
         max_tool_errors=2,
@@ -25,6 +31,10 @@ def test_prompt_rendering_includes_issue_repository_tools_and_constraints() -> N
     assert "example/calculator" in prompts.issue_context_prompt
     assert "Please preserve backwards compatibility" in prompts.issue_context_prompt
     assert "- run_tests" in prompts.tool_use_instructions
+    assert "- retrieve_relevant_files" in prompts.tool_use_instructions
+    assert "retrieve_relevant_files before broad listing" in prompts.tool_use_instructions
+    assert "Inspect retrieved files before editing" in prompts.developer_safety_prompt
+    assert "prefer small targeted changes" in prompts.developer_safety_prompt
     assert "pytest -q" in prompts.tool_use_instructions
     assert "Maximum steps: 12" in prompts.developer_safety_prompt
     assert "Maximum tool errors: 2" in prompts.developer_safety_prompt

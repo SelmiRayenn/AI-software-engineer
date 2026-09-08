@@ -6,16 +6,28 @@ from app.models.generated_patch import GeneratedPatch
 from app.models.gold_patch import GoldPatch
 from app.models.human_review import HumanReview
 from app.models.repository import Repository
+from app.models.repository_index import (
+    ChunkEmbedding,
+    IndexedChunk,
+    IndexedFile,
+    IndexedSymbol,
+    RepositoryIndex,
+)
 from app.models.test_result import TestResult
 
 __all__ = [
     "AgentEvent",
     "AgentRun",
     "BenchmarkTask",
+    "ChunkEmbedding",
     "EvaluationMetric",
     "GeneratedPatch",
     "GoldPatch",
     "HumanReview",
+    "IndexedChunk",
+    "IndexedFile",
+    "IndexedSymbol",
     "Repository",
+    "RepositoryIndex",
     "TestResult",
 ]

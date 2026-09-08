@@ -16,6 +16,7 @@ if TYPE_CHECKING:
     from app.models.benchmark_task import BenchmarkTask
     from app.models.evaluation_metric import EvaluationMetric
     from app.models.generated_patch import GeneratedPatch
+    from app.models.repository_index import RepositoryIndex
     from app.models.test_result import TestResult
 
 
@@ -58,6 +59,9 @@ class AgentRun(UUIDPrimaryKeyMixin, Base):
         back_populates="agent_run",
         cascade="all, delete-orphan",
         uselist=False,
+    )
+    repository_index: Mapped["RepositoryIndex | None"] = relationship(
+        back_populates="agent_run", cascade="all, delete-orphan", uselist=False,
     )
 
     @property

@@ -1,6 +1,7 @@
 from functools import lru_cache
+from typing import Literal
 
-from pydantic import AliasChoices, Field
+from pydantic import AliasChoices, Field, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -55,10 +56,39 @@ class Settings(BaseSettings):
     openai_api_key: str | None = Field(default=None, alias="OPENAI_API_KEY")
     openai_default_model: str = Field(default="gpt-4o-mini", alias="OPENAI_DEFAULT_MODEL")
     enable_real_model_calls: bool = Field(default=False, alias="ENABLE_REAL_MODEL_CALLS")
+    enable_real_embeddings: bool = Field(default=False, alias="ENABLE_REAL_EMBEDDINGS")
+    embeddings_provider: Literal["mock", "openai", "local"] = Field(
+        default="mock", alias="EMBEDDINGS_PROVIDER"
+    )
+    openai_embedding_model: str = Field(
+        default="text-embedding-3-small", min_length=1, alias="OPENAI_EMBEDDING_MODEL"
+    )
+    embedding_batch_size: int = Field(default=32, ge=1, le=128, alias="EMBEDDING_BATCH_SIZE")
+    embedding_vector_dimensions: int | None = Field(
+        default=None, ge=1, le=4096, alias="EMBEDDING_VECTOR_DIMENSIONS"
+    )
+    embedding_chunk_size_chars: int = Field(
+        default=1000, ge=128, le=1500, alias="EMBEDDING_CHUNK_SIZE_CHARS"
+    )
+    embedding_chunk_overlap_chars: int = Field(
+        default=100, ge=0, le=500, alias="EMBEDDING_CHUNK_OVERLAP_CHARS"
+    )
+    embedding_auto_build: bool = Field(default=False, alias="EMBEDDING_AUTO_BUILD")
     anthropic_api_key: str | None = Field(default=None, alias="ANTHROPIC_API_KEY")
     local_model_endpoint: str | None = Field(default=None, alias="LOCAL_MODEL_ENDPOINT")
 
     model_config = SettingsConfigDict(env_file=".env", extra="ignore")
+
+    @field_validator("embedding_vector_dimensions", mode="before")
+    @classmethod
+    def optional_embedding_dimensions(cls, value):
+        return None if value == "" else value
+
+    @model_validator(mode="after")
+    def validate_embedding_overlap(self):
+        if self.embedding_chunk_overlap_chars >= self.embedding_chunk_size_chars:
+            raise ValueError("Embedding chunk overlap must be smaller than chunk size.")
+        return self
 
     @property
     def cors_origins(self) -> list[str]:
