@@ -224,6 +224,36 @@ def test_evaluation_rejects_non_completed_run(db: Session) -> None:
         raise AssertionError("Expected EvaluationRunNotCompleteError")
 
 
+def test_failed_comparison_run_metrics_are_opt_in_and_idempotent(db: Session) -> None:
+    run_id = create_completed_run(
+        db,
+        status="failed",
+        post_patch_passed=[False],
+        model_provider="mock",
+    )
+    run = db.get(AgentRun, run_id)
+    run.completed_at = run.started_at + timedelta(seconds=8)
+    db.commit()
+    evaluator = EvaluationService(db=db, agent_run_id=run_id)
+    with pytest.raises(EvaluationRunNotCompleteError):
+        evaluator.evaluate()
+    first = evaluator.evaluate(include_failed=True)
+    second = evaluator.evaluate(include_failed=True)
+    assert first.id == second.id
+    assert first.tests_passed is False
+    assert first.tokens_used == 0 and first.estimated_cost == 0
+    assert first.execution_time_seconds == 8
+    assert db.get(AgentRun, run_id).status == "failed"
+    assert db.scalar(select(func.count()).select_from(EvaluationMetric)) == 1
+
+
+@pytest.mark.parametrize("status", ["queued", "running", "cancelled"])
+def test_comparison_evaluation_cannot_score_active_or_cancelled_runs(db: Session, status: str):
+    run_id = create_completed_run(db, status=status)
+    with pytest.raises(EvaluationRunNotCompleteError):
+        EvaluationService(db=db, agent_run_id=run_id).evaluate(include_failed=True)
+
+
 def test_metrics_api_evaluates_and_reads_metrics(client: TestClient, db: Session) -> None:
     run_id = create_completed_run(
         db,

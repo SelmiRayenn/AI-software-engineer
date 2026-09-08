@@ -30,12 +30,12 @@ class ModelProviderFactory:
             )
         if normalized_name == "anthropic":
             return AnthropicProvider(
-                model_name=model_name or "claude-3-5-haiku-latest",
+                model_name=model_name or self._settings.anthropic_default_model,
                 app_settings=self._settings,
             )
         if normalized_name == "local":
             return LocalModelProvider(
-                model_name=model_name or "local-model",
+                model_name=model_name or self._settings.local_model_default_model,
                 app_settings=self._settings,
             )
         raise ModelProviderConfigError(f"Unknown model provider: {provider_name}")

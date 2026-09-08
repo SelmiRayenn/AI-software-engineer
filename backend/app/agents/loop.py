@@ -10,7 +10,7 @@ from uuid import UUID
 
 from sqlalchemy.orm import Session
 
-from app.agents.prompts import RenderedAgentPrompts, render_agent_prompts
+from app.agents.prompts import RenderedAgentPrompts, redact_prompt_text, render_agent_prompts
 from app.agents.tools import (
     AgentWorkspaceTools,
     CodeSearchResult,
@@ -170,7 +170,7 @@ class AgentLoop:
                     tools=self.tool_definitions(),
                 )
             except Exception as exc:  # noqa: BLE001 - provider adapters are an external boundary
-                error_message = f"Model provider call failed: {exc}"
+                error_message = redact_prompt_text(f"Model provider call failed: {exc}")[:2000]
                 self._log_event(
                     "model_call_completed",
                     {

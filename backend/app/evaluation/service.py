@@ -5,7 +5,7 @@ from uuid import UUID
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app.core.run_statuses import RUN_STATUS_COMPLETED
+from app.core.run_statuses import RUN_STATUS_COMPLETED, RUN_STATUS_FAILED
 from app.core.test_phases import TEST_PHASE_POST_PATCH
 from app.models import AgentEvent, AgentRun, EvaluationMetric, GeneratedPatch, GoldPatch, TestResult
 
@@ -33,8 +33,11 @@ class EvaluationService:
             select(EvaluationMetric).where(EvaluationMetric.agent_run_id == self._agent_run_id)
         )
 
-    def evaluate(self) -> EvaluationMetric:
-        if self._agent_run.status != RUN_STATUS_COMPLETED:
+    def evaluate(self, *, include_failed: bool = False) -> EvaluationMetric:
+        allowed_statuses = {RUN_STATUS_COMPLETED}
+        if include_failed:
+            allowed_statuses.add(RUN_STATUS_FAILED)
+        if self._agent_run.status not in allowed_statuses:
             raise EvaluationRunNotCompleteError("Agent run must be completed before evaluation.")
 
         gold_patch = self._gold_patch()

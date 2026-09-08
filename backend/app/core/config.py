@@ -75,7 +75,18 @@ class Settings(BaseSettings):
     )
     embedding_auto_build: bool = Field(default=False, alias="EMBEDDING_AUTO_BUILD")
     anthropic_api_key: str | None = Field(default=None, alias="ANTHROPIC_API_KEY")
+    anthropic_default_model: str = Field(
+        default="claude-sonnet-5", min_length=1, alias="ANTHROPIC_DEFAULT_MODEL"
+    )
     local_model_endpoint: str | None = Field(default=None, alias="LOCAL_MODEL_ENDPOINT")
+    local_model_api_key: str | None = Field(default=None, alias="LOCAL_MODEL_API_KEY")
+    local_model_default_model: str = Field(
+        default="local-model", min_length=1, alias="LOCAL_MODEL_DEFAULT_MODEL"
+    )
+    local_model_timeout_seconds: float = Field(
+        default=120.0, gt=0, le=3600, alias="LOCAL_MODEL_TIMEOUT_SECONDS"
+    )
+    enable_local_model_calls: bool = Field(default=False, alias="ENABLE_LOCAL_MODEL_CALLS")
 
     model_config = SettingsConfigDict(env_file=".env", extra="ignore")
 

@@ -13,6 +13,11 @@ GET /agent-runs/{run_id}/metrics
 `POST /evaluate` calculates and stores metrics. `GET /metrics` reads the stored result. Evaluation
 is rejected until the agent run is `completed`.
 
+The [model comparison service](model-comparison.md) additionally evaluates terminal `failed` runs
+through an internal opt-in so failed attempts contribute usage, cost, and time to comparisons.
+It does not change their failed status or make them eligible for passing-model awards. Queued,
+running, and cancelled runs remain ineligible; the standalone POST retains its completed-only rule.
+
 ## Metrics
 
 ### File Localization Score

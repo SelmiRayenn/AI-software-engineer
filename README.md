@@ -222,6 +222,15 @@ changes, checks post-patch test results, aggregates token/cost events, and recor
 
 See `docs/evaluation-metrics.md` for the metric formulas.
 
+## Model Comparison
+
+Use `POST /benchmark-tasks/{task_id}/compare-models` to run 2-10 provider/model configurations on
+one ready task. Each model gets a separate run and workspace; failures are recorded while other
+models continue. `GET /benchmark-tasks/{task_id}/model-comparison` returns the latest comparison,
+including per-model metrics, passing-model awards, total cost, and total run time.
+See [model comparison](docs/model-comparison.md) for requests, historical lookup, ranking rules,
+and execution limits.
+
 ## Human Approval
 
 Generated patches must be reviewed by a human before any future export or pull request creation

@@ -16,6 +16,7 @@ from app.api.routes.benchmark_task_ingestion import router as benchmark_task_ing
 from app.api.routes.benchmark_tasks import router as benchmark_tasks_router
 from app.api.routes.github import router as github_router
 from app.api.routes.health import router as health_router
+from app.api.routes.model_comparison import router as model_comparison_router
 from app.api.routes.patch_reviews import router as patch_reviews_router
 from app.api.routes.repositories import router as repositories_router
 from app.api.routes.sandbox import router as sandbox_router
@@ -57,6 +58,7 @@ def create_app() -> FastAPI:
     app.include_router(agent_run_metrics_router)
     app.include_router(agent_run_patches_router)
     app.include_router(agent_run_tests_router)
+    app.include_router(model_comparison_router)
     app.include_router(patch_reviews_router)
     app.include_router(github_router)
     app.include_router(benchmark_task_ingestion_router)

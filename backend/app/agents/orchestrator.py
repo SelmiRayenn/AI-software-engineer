@@ -13,7 +13,7 @@ from sqlalchemy.orm import Session
 
 from app import crud
 from app.agents.loop import AgentLoop, registered_tool_names
-from app.agents.prompts import render_agent_prompts
+from app.agents.prompts import redact_prompt_text, render_agent_prompts
 from app.agents.tools import AgentWorkspaceTools, ToolError
 from app.core.config import settings
 from app.core.run_statuses import (
@@ -127,6 +127,7 @@ class AgentRunOrchestrator:
         *,
         benchmark_task_id: uuid.UUID,
         request: AgentRunStartRequest,
+        agent_run_id: uuid.UUID | None = None,
     ) -> AgentRunStartResponse:
         task = crud.get_benchmark_task(self._db, benchmark_task_id)
         if task is None:
@@ -142,7 +143,20 @@ class AgentRunOrchestrator:
             request.model_provider,
             model_name=request.model_name,
         )
-        run = self._create_agent_run(task=task, provider=provider)
+        if agent_run_id is None:
+            run = self._create_agent_run(task=task, provider=provider)
+        else:
+            run = self._db.get(AgentRun, agent_run_id)
+            if (
+                run is None
+                or run.benchmark_task_id != task.id
+                or run.status != RUN_STATUS_QUEUED
+                or run.model_provider != provider.provider_name
+                or run.model_name != provider.model_name
+            ):
+                raise AgentRunStartError(
+                    "Prepared run must be queued and match the task and model."
+                )
         run_config = AgentRunConfig.model_validate(
             {
                 **request.model_dump(),
@@ -265,7 +279,7 @@ class AgentRunOrchestrator:
             TestExecutionError,
             ValueError,
         ) as exc:
-            error_message = str(exc)
+            error_message = redact_prompt_text(str(exc))[:2000]
             self._mark_run_status(run, RUN_STATUS_FAILED)
             self._log_event(
                 run,
@@ -308,6 +322,8 @@ class AgentRunOrchestrator:
 
     def _mark_run_status(self, run: AgentRun, status: str) -> None:
         run.status = status
+        if status == RUN_STATUS_RUNNING:
+            run.started_at = datetime.now(UTC)
         if status in {RUN_STATUS_COMPLETED, RUN_STATUS_FAILED}:
             run.completed_at = datetime.now(UTC)
         self._db.add(run)

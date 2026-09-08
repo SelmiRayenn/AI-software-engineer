@@ -9,6 +9,10 @@ class ModelProviderConfigError(RuntimeError):
     pass
 
 
+class ModelProviderRequestError(RuntimeError):
+    pass
+
+
 @dataclass(frozen=True)
 class ModelMessage:
     role: str
