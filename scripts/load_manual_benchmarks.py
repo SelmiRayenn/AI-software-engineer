@@ -86,6 +86,10 @@ def _get_or_create_task(
         setup_commands=task_data.get("setup_commands", []),
         test_commands=task_data.get("test_commands", []),
         notes=task_data.get("notes"),
+        allow_lockfile_changes=task_data.get("allow_lockfile_changes", False),
+        allow_dependency_file_changes=task_data.get(
+            "allow_dependency_file_changes", False
+        ),
         status=task_data.get("status", "draft"),
     )
     db.add(task)

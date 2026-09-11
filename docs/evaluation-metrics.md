@@ -15,10 +15,16 @@ is rejected until the agent run is `completed`.
 
 The [model comparison service](model-comparison.md) additionally evaluates terminal `failed` runs
 through an internal opt-in so failed attempts contribute usage, cost, and time to comparisons.
+The orchestrator also uses this opt-in for failed repair runs with a selected candidate.
 It does not change their failed status or make them eligible for passing-model awards. Queued,
 running, and cancelled runs remain ineligible; the standalone POST retains its completed-only rule.
 
 ## Metrics
+
+For repair runs, patch/test metrics describe the final selected version and its associated
+post-patch tests. Failed earlier versions and diagnostic tool tests are excluded. An invalid final
+candidate cannot claim patch application or passing tests. Localization, tokens, cost, and elapsed
+time include the entire run. All candidate/test history remains available for inspection.
 
 ### File Localization Score
 
@@ -50,6 +56,17 @@ has evidence that the patch applied cleanly. Evidence currently comes from:
 
 `unrelated_files_count` is the count of generated changed files that are not present in the hidden
 gold patch changed-file list.
+
+## Patch Quality
+
+Patch minimality is stored separately in `PatchQuality` so each immutable patch version retains
+its own report, while `EvaluationMetric` continues to summarize the final selected patch for a run.
+`GET /patches/{patch_id}/quality` reports file and line counts, file-kind categories,
+whitespace-only changes, dependency/lockfile touches, generated-output violations, and warnings.
+
+The quality service and evaluation engine use the same hidden gold association for unrelated-file
+analysis. Public quality responses expose only the unrelated count and never reveal gold paths or
+gold patch text.
 
 ### Tokens And Cost
 

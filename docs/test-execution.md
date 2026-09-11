@@ -69,6 +69,8 @@ Each command creates a `TestResult` row with:
 - stdout
 - stderr
 - duration in seconds
+- generated patch ID (nullable for baseline/setup and diagnostic tool runs)
+- attempt number (1 for first submission, 2 for first repair; null for standalone/legacy results)
 
 Output is capped by `SANDBOX_MAX_OUTPUT_BYTES`. When output exceeds the limit, the stored value keeps
 the last bytes with a truncation prefix.
@@ -84,8 +86,30 @@ the last bytes with a truncation prefix.
 ## Orchestrator Integration
 
 The agent-run orchestrator runs setup and baseline tests before the model tool loop,
-then runs post-patch tests after `submit_patch`. Setup failure fails the run immediately after logs
-are stored. Post-patch test failure also marks the run failed.
+then runs post-patch tests after each `submit_patch` when `run_tests_after_patch=true` (the default).
+Setup failure fails the run immediately after logs are stored. During managed repairs, intermediate
+post-patch failure leaves the run `running`, records every command result with its candidate ID and
+attempt number, and returns safe feedback to the same model conversation. The public standalone
+post-patch endpoint still finalizes its run after one phase.
+
+`max_repair_attempts` defaults to 0 (range 0-5). `stop_on_first_passing_patch` and
+`include_test_failure_feedback` default to true. All attempts share the original `max_steps`,
+`max_tool_errors`, command timeout, output limit, and configured-command allowlist. Disabling the
+agent's `run_tests` tool does not disable the orchestrated test phases. See
+[agent repair configuration](agent-loop.md#repair-attempts) for requests and selection rules.
+
+Failure feedback sent to the model is separately redacted and bounded to 4,096 UTF-8 bytes.
+Disabling failure output includes only counts; stored bounded stdout/stderr remain available for
+human inspection. Neither hidden evaluation results nor GoldPatch data enter repair feedback.
+
+Tests that mutate tracked or unignored workspace files invalidate the candidate, which must then be
+inspected and resubmitted. Configure repository ignore rules for ordinary build/test artifacts.
+Patch validation/application failure produces an attempt event without invented command results.
+
+The run's final candidate is exposed through `final_patch_id`, and `final_patch_passed_tests` is
+true, false, or null (untested). Evaluation reads only the selected candidate's post-patch results;
+earlier failed candidates and diagnostic `run_tests` results cannot overturn a passing final patch.
+No post-patch commands means untested, not passing. Test history stays available across all attempts.
 
 ## Current Limits
 

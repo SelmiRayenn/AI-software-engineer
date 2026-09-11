@@ -43,7 +43,7 @@ class EvaluationService:
         gold_patch = self._gold_patch()
         generated_patch = self._generated_patch()
         events = self._events()
-        post_patch_results = self._post_patch_results()
+        post_patch_results = self._post_patch_results(generated_patch)
         tokens_used, estimated_cost = self._tokens_and_cost(events)
 
         values = {
@@ -51,7 +51,11 @@ class EvaluationService:
             "file_localization_score": self._file_localization_score(events, gold_patch),
             "patch_applied": self._patch_applied(generated_patch, events),
             "tests_passed": bool(post_patch_results)
-            and all(result.passed for result in post_patch_results),
+            and all(result.passed for result in post_patch_results)
+            and (
+                not self._agent_run.final_patch_id
+                or self._agent_run.final_patch_passed_tests is not False
+            ),
             "modified_files_count": len(_normalized_files(generated_patch.changed_files))
             if generated_patch is not None
             else 0,
@@ -85,9 +89,7 @@ class EvaluationService:
         return gold_patch
 
     def _generated_patch(self) -> GeneratedPatch | None:
-        return self._db.scalar(
-            select(GeneratedPatch).where(GeneratedPatch.agent_run_id == self._agent_run_id)
-        )
+        return self._agent_run.generated_patch
 
     def _events(self) -> list[AgentEvent]:
         return list(
@@ -98,8 +100,8 @@ class EvaluationService:
             ).all()
         )
 
-    def _post_patch_results(self) -> list[TestResult]:
-        return list(
+    def _post_patch_results(self, patch: GeneratedPatch | None) -> list[TestResult]:
+        results = list(
             self._db.scalars(
                 select(TestResult)
                 .where(
@@ -109,6 +111,14 @@ class EvaluationService:
                 .order_by(TestResult.created_at.asc())
             ).all()
         )
+        if patch and patch.is_selected:
+            results = [result for result in results if result.generated_patch_id == patch.id]
+            attempts = [
+                result.attempt_number for result in results if result.attempt_number is not None
+            ]
+            if attempts:
+                results = [result for result in results if result.attempt_number == max(attempts)]
+        return results
 
     def _file_localization_score(self, events: list[AgentEvent], gold_patch: GoldPatch) -> float:
         gold_files = _normalized_files(gold_patch.changed_files)
@@ -133,16 +143,31 @@ class EvaluationService:
             return False
 
         generated_patch_id = str(generated_patch.id)
+        attempts = [
+            event.payload_json
+            for event in events
+            if event.event_type == "repair_attempt_completed"
+            and event.payload_json.get("generated_patch_id") == generated_patch_id
+        ]
+        if attempts and attempts[-1].get("outcome") in {"invalid_patch", "error"}:
+            return False
+        legacy = not attempts and generated_patch.version == 1
         for event in events:
             payload = event.payload_json or {}
             if event.event_type == "patch_applied":
                 event_patch_id = payload.get("generated_patch_id")
-                if event_patch_id in {None, generated_patch_id}:
+                if (
+                    event_patch_id == generated_patch_id or (event_patch_id is None and legacy)
+                ) and payload.get("applied") is not False:
                     return True
             if (
                 event.event_type == "test_phase_completed"
                 and payload.get("phase") == TEST_PHASE_POST_PATCH
                 and payload.get("patch_status") in {"applied", "already_applied"}
+                and (
+                    payload.get("generated_patch_id") == generated_patch_id
+                    or (payload.get("generated_patch_id") is None and legacy)
+                )
             ):
                 return True
         return False

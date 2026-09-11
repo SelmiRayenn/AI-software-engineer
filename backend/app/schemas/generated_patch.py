@@ -18,5 +18,7 @@ class GeneratedPatchRead(GeneratedPatchBase):
     id: UUID
     review_status: str = "pending"
     created_at: datetime
+    version: int = 1
+    is_selected: bool = False
 
     model_config = ConfigDict(from_attributes=True)

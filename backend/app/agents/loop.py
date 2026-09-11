@@ -11,6 +11,7 @@ from uuid import UUID
 from sqlalchemy.orm import Session
 
 from app.agents.prompts import RenderedAgentPrompts, redact_prompt_text, render_agent_prompts
+from app.agents.repairs import AgentRepairService
 from app.agents.tools import (
     AgentWorkspaceTools,
     CodeSearchResult,
@@ -21,6 +22,16 @@ from app.agents.tools import (
     RelevantFilesResult,
     SubmittedPatchResult,
     TestCommandResult,
+)
+from app.failures.categories import (
+    FAILURE_MALFORMED_TOOL_CALL,
+    FAILURE_MAX_STEPS_REACHED,
+    FAILURE_MODEL_PROVIDER_ERROR,
+    FAILURE_PATCH_APPLY_FAILED,
+    FAILURE_PATCH_QUALITY_BLOCKED,
+    FAILURE_TIMEOUT,
+    FAILURE_TOOL_ERROR_LIMIT_REACHED,
+    FAILURE_UNKNOWN_TOOL,
 )
 from app.model_providers import (
     ModelMessage,
@@ -71,6 +82,7 @@ class AgentLoopResult:
     model_calls: int
     tool_errors: int
     error_message: str | None = None
+    failure_category: str | None = None
 
 
 @dataclass(frozen=True)
@@ -101,6 +113,7 @@ class AgentLoop:
         prompts: RenderedAgentPrompts | None = None,
         max_steps: int | None = None,
         max_tool_errors: int = 3,
+        repairs: AgentRepairService | None = None,
     ) -> None:
         config = config or AgentRunConfig(
             model_provider=provider.provider_name,
@@ -122,6 +135,7 @@ class AgentLoop:
         self._provider = provider
         self._tools = tools
         self._config = config
+        self._repairs = repairs
         self._max_steps = max_steps
         self._max_tool_errors = max_tool_errors
         self._contracts = self._build_tool_contracts()
@@ -136,6 +150,10 @@ class AgentLoop:
             include_issue_comments=config.include_issue_comments,
             enable_test_tool=config.enable_test_tool,
             run_mode=config.run_mode,
+            max_repair_attempts=config.max_repair_attempts,
+            run_tests_after_patch=config.run_tests_after_patch,
+            stop_on_first_passing_patch=config.stop_on_first_passing_patch,
+            include_test_failure_feedback=config.include_test_failure_feedback,
         )
 
     def build_initial_messages(self) -> list[ModelMessage]:
@@ -152,6 +170,7 @@ class AgentLoop:
         steps: list[AgentRunTraceStep] = []
         model_calls = 0
         tool_errors = 0
+        last_tool_failure_category: str | None = None
 
         while model_calls < self._max_steps and len(steps) < self._max_steps:
             model_calls += 1
@@ -187,6 +206,7 @@ class AgentLoop:
                     model_calls=model_calls,
                     tool_errors=tool_errors,
                     error_message=error_message,
+                    failure_category=FAILURE_MODEL_PROVIDER_ERROR,
                 )
 
             self._log_model_response(response, step=model_calls)
@@ -205,7 +225,7 @@ class AgentLoop:
                 )
                 continue
 
-            for raw_tool_call in raw_tool_calls:
+            for call_index, raw_tool_call in enumerate(raw_tool_calls):
                 if len(steps) >= self._max_steps:
                     return self._step_limit_result(
                         steps=steps,
@@ -223,14 +243,19 @@ class AgentLoop:
                     },
                 )
                 started = time.perf_counter()
+                submission_started = False
                 try:
                     tool_call = self._parse_tool_call(raw_tool_call)
+                    if self._repairs and tool_call.name == "submit_patch":
+                        self._repairs.begin_attempt()
+                        submission_started = True
                     result = self._execute_tool(tool_call)
                 except Exception as exc:  # noqa: BLE001 - controlled tools are an execution boundary
                     duration = time.perf_counter() - started
                     tool_errors += 1
                     tool_name = _raw_tool_name(raw_tool_call)
-                    error_message = str(exc)
+                    error_message = redact_prompt_text(str(exc))[:2000]
+                    last_tool_failure_category = _tool_failure_category(exc, error_message)
                     steps.append(
                         AgentRunTraceStep(
                             step_name=tool_name,
@@ -248,6 +273,7 @@ class AgentLoop:
                             "error_message": error_message,
                             "duration_seconds": duration,
                             "tool_error_count": tool_errors,
+                            "failure_category": last_tool_failure_category,
                         },
                     )
                     messages.append(
@@ -258,6 +284,11 @@ class AgentLoop:
                             value={"error": error_message},
                         )
                     )
+                    decision = None
+                    if submission_started:
+                        decision = self._repairs.assess(None, error=exc)
+                        _skip_remaining_calls(messages, raw_tool_calls[call_index + 1 :])
+                        messages.append(ModelMessage(role="user", content=decision.feedback))
                     if tool_errors >= self._max_tool_errors:
                         limit_error = (
                             f"Maximum tool error limit of {self._max_tool_errors} reached."
@@ -270,7 +301,26 @@ class AgentLoop:
                             model_calls=model_calls,
                             tool_errors=tool_errors,
                             error_message=limit_error,
+                            failure_category=(
+                                last_tool_failure_category or FAILURE_TOOL_ERROR_LIMIT_REACHED
+                            ),
                         )
+                    if decision:
+                        if decision.stop:
+                            return AgentLoopResult(
+                                steps=steps,
+                                messages=messages,
+                                submitted_patch=None,
+                                stop_reason="patch_submitted",
+                                model_calls=model_calls,
+                                tool_errors=tool_errors,
+                                error_message=decision.feedback,
+                                failure_category=(
+                                    last_tool_failure_category
+                                    or _failure_category_for_error_message(decision.feedback)
+                                ),
+                            )
+                        break
                     continue
 
                 duration = time.perf_counter() - started
@@ -304,8 +354,43 @@ class AgentLoop:
                             "generated_patch_id": str(result.generated_patch_id),
                             "changed_files": result.changed_files,
                             "patch_size_bytes": len(result.patch_text.encode("utf-8")),
+                            "patch_version": result.version,
                         },
                     )
+                    if self._repairs:
+                        decision = self._repairs.assess(result)
+                        _skip_remaining_calls(messages, raw_tool_calls[call_index + 1 :])
+                        messages.append(ModelMessage(role="user", content=decision.feedback))
+                        if decision.invalid_patch:
+                            tool_errors += 1
+                            last_tool_failure_category = _failure_category_for_error_message(
+                                decision.feedback
+                            )
+                            self._log_event(
+                                "tool_call_failed",
+                                {
+                                    "tool_name": "submit_patch",
+                                    "tool_call_id": tool_call.id,
+                                    "error_message": decision.feedback,
+                                    "tool_error_count": tool_errors,
+                                    "failure_category": last_tool_failure_category,
+                                },
+                            )
+                        if tool_errors >= self._max_tool_errors:
+                            return AgentLoopResult(
+                                steps=steps,
+                                messages=messages,
+                                submitted_patch=result,
+                                stop_reason="max_tool_errors",
+                                model_calls=model_calls,
+                                tool_errors=tool_errors,
+                                error_message=f"Maximum tool error limit of {self._max_tool_errors} reached.",
+                                failure_category=(
+                                    last_tool_failure_category or FAILURE_TOOL_ERROR_LIMIT_REACHED
+                                ),
+                            )
+                        if not decision.stop:
+                            break
                     return AgentLoopResult(
                         steps=steps,
                         messages=messages,
@@ -383,7 +468,7 @@ class AgentLoop:
             ),
             ToolDefinition(
                 name="submit_patch",
-                description="Store the current diff for human review and stop the agent loop.",
+                description="Submit the current diff for validation and configured tests; inspect repair feedback if returned.",
                 input_schema=_object_schema(),
             ),
         ]
@@ -527,6 +612,7 @@ class AgentLoop:
             model_calls=model_calls,
             tool_errors=tool_errors,
             error_message=error_message,
+            failure_category=FAILURE_MAX_STEPS_REACHED,
         )
 
     def _log_event(self, event_type: str, payload: dict[str, Any]) -> None:
@@ -568,6 +654,19 @@ def _assistant_message(response: ModelProviderResponse) -> ModelMessage:
             default=str,
         ),
     )
+
+
+def _skip_remaining_calls(messages: list[ModelMessage], calls: list[Any]) -> None:
+    # Complete provider tool-call history without executing stale edits after a submission.
+    for call in calls:
+        messages.append(
+            _tool_message(
+                tool_call_id=_raw_tool_call_id(call),
+                tool_name=_raw_tool_name(call),
+                success=False,
+                value={"error": "Not executed: patch submission ended this tool batch."},
+            )
+        )
 
 
 def _response_tool_calls(response: ModelProviderResponse) -> list[Any]:
@@ -624,6 +723,25 @@ def _raw_tool_call_id(raw_tool_call: Any) -> str | None:
         return raw_tool_call.id if isinstance(raw_tool_call.id, str) else None
     if isinstance(raw_tool_call, dict) and isinstance(raw_tool_call.get("id"), str):
         return raw_tool_call["id"]
+    return None
+
+
+def _tool_failure_category(exc: Exception, message: str) -> str | None:
+    if isinstance(exc, UnknownToolError):
+        return FAILURE_UNKNOWN_TOOL
+    if isinstance(exc, MalformedToolCallError):
+        return FAILURE_MALFORMED_TOOL_CALL
+    return _failure_category_for_error_message(message)
+
+
+def _failure_category_for_error_message(message: str) -> str | None:
+    value = message.lower()
+    if "quality guardrail" in value or "patch quality" in value:
+        return FAILURE_PATCH_QUALITY_BLOCKED
+    if "does not apply cleanly" in value or "could not be applied" in value:
+        return FAILURE_PATCH_APPLY_FAILED
+    if "timed out" in value or "timeout" in value:
+        return FAILURE_TIMEOUT
     return None
 
 

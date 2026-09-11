@@ -330,6 +330,7 @@ def test_provider_flags_are_enforced_and_configuration_failure_is_audited(
     assert response.status_code == 200, response.text
     failed, good = response.json()["runs"]
     assert failed["status"] == "failed"
+    assert failed["failure_category"] == "model_provider_error"
     assert "disabled" in failed["failure_reason"]
     assert "ENABLE_" in failed["failure_reason"]
     assert failed["metric_id"]

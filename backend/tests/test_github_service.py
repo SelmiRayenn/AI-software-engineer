@@ -115,7 +115,9 @@ def test_preview_pull_request_parses_mocked_responses() -> None:
     assert preview.benchmark_task_hint.linked_pr_url.endswith("/pull/43")
 
 
-def test_preview_issue_endpoint_uses_structured_service_response(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_preview_issue_endpoint_uses_structured_service_response(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     class FakeGitHubService:
         def preview_issue(self, repository_url: str, issue_number: int):
             assert repository_url == "https://github.com/example/calculator"
@@ -263,7 +265,9 @@ def timeline_cross_reference_payload() -> dict[str, object]:
         "source": {
             "issue": {
                 "number": 43,
-                "pull_request": {"url": "https://api.github.test/repos/example/calculator/pulls/43"},
+                "pull_request": {
+                    "url": "https://api.github.test/repos/example/calculator/pulls/43"
+                },
                 "repository": {"full_name": "example/calculator"},
             }
         },

@@ -7,6 +7,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.db.session import get_db
+from app.failures import AgentRunFailureNotFoundError, FailureClassificationService
 from app.models import AgentEvent, AgentRun
 from app.schemas.agent_run import (
     AgentPromptPreview,
@@ -31,6 +32,12 @@ def get_agent_run_detail(run_id: UUID, db: DbSession = None) -> AgentRunDetailRe
     repository = task.repository
     generated_patch = run.generated_patch
     metric = run.evaluation_metric
+    failure = run.failure
+    if failure is None and run.status in {"failed", "cancelled"}:
+        try:
+            failure = FailureClassificationService(db).get_or_classify(run.id)
+        except AgentRunFailureNotFoundError:
+            failure = None
     run_config, prompt_preview = _stored_run_context(db, run.id)
 
     return AgentRunDetailRead(
@@ -71,6 +78,11 @@ def get_agent_run_detail(run_id: UUID, db: DbSession = None) -> AgentRunDetailRe
         ),
         run_config=run_config,
         prompt_preview=prompt_preview,
+        repair_attempts_used=run.repair_attempts_used,
+        final_patch_id=run.final_patch_id,
+        final_patch_passed_tests=run.final_patch_passed_tests,
+        failure_summary=run.failure_summary,
+        failure_category=failure.category if failure else None,
     )
 
 

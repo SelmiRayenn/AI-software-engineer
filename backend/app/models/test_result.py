@@ -24,6 +24,10 @@ class TestResult(UUIDPrimaryKeyMixin, CreatedAtMixin, Base):
         nullable=False,
     )
     phase: Mapped[str] = mapped_column(String(100), nullable=False)
+    generated_patch_id: Mapped[uuid.UUID | None] = mapped_column(
+        Uuid(as_uuid=True), ForeignKey("generated_patches.id", ondelete="SET NULL"), nullable=True
+    )
+    attempt_number: Mapped[int | None] = mapped_column(Integer, nullable=True)
     command: Mapped[str] = mapped_column(Text, nullable=False)
     passed: Mapped[bool] = mapped_column(Boolean, nullable=False)
     exit_code: Mapped[int] = mapped_column(Integer, nullable=False)

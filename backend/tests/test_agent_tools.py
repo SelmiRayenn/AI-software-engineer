@@ -45,9 +45,7 @@ def workspace(tmp_path: Path) -> Path:
         encoding="utf-8",
     )
     (root / "tests" / "test_calculator.py").write_text(
-        "from src.calculator import add\n\n"
-        "def test_add():\n"
-        "    assert add(1, 2) == 3\n",
+        "from src.calculator import add\n\ndef test_add():\n    assert add(1, 2) == 3\n",
         encoding="utf-8",
     )
     (root / ".benchmark_gold" / "gold_patch.diff").write_text(

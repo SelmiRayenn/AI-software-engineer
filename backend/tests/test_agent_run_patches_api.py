@@ -82,7 +82,9 @@ def test_agent_run_patch_api_round_trip(client: TestClient, workspace: Path) -> 
     assert patch_payload["stats"]["changed_files_count"] == 1
 
     with TestingSessionLocal() as db:
-        stored_patch = db.scalar(select(GeneratedPatch).where(GeneratedPatch.agent_run_id == run_id))
+        stored_patch = db.scalar(
+            select(GeneratedPatch).where(GeneratedPatch.agent_run_id == run_id)
+        )
         assert stored_patch is not None
 
 

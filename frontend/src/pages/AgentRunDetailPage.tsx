@@ -159,8 +159,15 @@ export function AgentRunDetailPage({ runId, onNavigate }: AgentRunDetailPageProp
 
       {failedRun ? (
         <section className="run-alert" role="status">
-          <strong>Run failed</strong>
-          <span>Patch, tests, and metrics may be incomplete for this execution.</span>
+          <strong>
+            {state.run.failure_category
+              ? formatFailureCategory(state.run.failure_category)
+              : "Run failed"}
+          </strong>
+          <span>
+            {state.run.failure_summary ??
+              "Patch, tests, and metrics may be incomplete for this execution."}
+          </span>
         </section>
       ) : null}
 
@@ -543,6 +550,13 @@ function reviewStatusDescription(status: string, exportEligible?: boolean): stri
     return "Blocked from export or publishing.";
   }
   return "A human decision is required before export or publication.";
+}
+
+function formatFailureCategory(category: string): string {
+  return category
+    .split("_")
+    .map((word) => word.charAt(0).toUpperCase() + word.slice(1))
+    .join(" ");
 }
 
 function formatTimestamp(value: string | null): string {

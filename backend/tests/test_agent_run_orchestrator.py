@@ -20,10 +20,16 @@ from app.core.config import settings
 from app.db.base import Base
 from app.db.session import get_db
 from app.main import app
-from app.model_providers import ModelProviderFactory
+from app.model_providers import (
+    MockModelProvider,
+    ModelProviderFactory,
+    ModelProviderResponse,
+    ModelToolCall,
+)
 from app.models import (
     AgentEvent,
     AgentRun,
+    AgentRunFailure,
     BenchmarkTask,
     ChunkEmbedding,
     EvaluationMetric,
@@ -33,7 +39,7 @@ from app.models import (
     RepositoryIndex,
 )
 from app.models import TestResult as ResultRecord
-from app.sandbox import SandboxWorkspaceManager
+from app.sandbox import DockerUnavailableError, SandboxWorkspaceManager
 
 engine = create_engine(
     "sqlite+pysqlite:///:memory:",
@@ -47,6 +53,7 @@ class FakeWorkspacePreparer:
     def __init__(self, workspace: Path) -> None:
         self.workspace = workspace
         self.fail = False
+        self.error: Exception | None = None
         self.calls: list[dict[str, object]] = []
 
     def prepare(
@@ -63,9 +70,16 @@ class FakeWorkspacePreparer:
                 "command_timeout_seconds": command_timeout_seconds,
             }
         )
+        if self.error:
+            raise self.error
         if self.fail:
             raise WorkspacePreparationError("sandbox workspace failed")
         return PreparedWorkspace(workspace_id="test-workspace", path=self.workspace)
+
+
+class FailingModelProvider(MockModelProvider):
+    def generate_response(self, messages, tools=None):
+        raise RuntimeError("provider offline; api_key=private-provider-key")
 
 
 def override_get_db() -> Generator[Session, None, None]:
@@ -322,8 +336,55 @@ def test_start_marks_run_failed_on_workspace_error(
         assert run is not None
         assert run.status == "failed"
         events = list(db.scalars(select(AgentEvent).where(AgentEvent.agent_run_id == run.id)).all())
+        assert run.failure.category == "repository_checkout_failed"
 
     assert events[-1].event_type == "agent_run_failed"
+
+
+def test_docker_unavailable_is_classified(
+    client: TestClient,
+    workspace_preparer: FakeWorkspacePreparer,
+) -> None:
+    workspace_preparer.error = DockerUnavailableError("Docker is unavailable.")
+    task_id = create_task(status="ready")
+
+    response = client.post(f"/agent-runs/{task_id}/start", json={"model_provider": "mock"})
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["status"] == "failed"
+    assert payload["failure_category"] == "docker_unavailable"
+
+
+def test_setup_failure_is_classified_by_orchestrator(client: TestClient) -> None:
+    task_id = create_task(
+        status="ready",
+        setup_commands=[python_command("raise SystemExit(2)")],
+    )
+
+    response = client.post(f"/agent-runs/{task_id}/start", json={"model_provider": "mock"})
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["status"] == "failed"
+    assert payload["failure_category"] == "setup_failed"
+
+
+def test_provider_error_is_classified_and_redacted(client: TestClient) -> None:
+    provider = FailingModelProvider(model_name="failing-mock")
+    app.dependency_overrides[get_model_provider_factory] = lambda: type(
+        "Factory",
+        (),
+        {"create": lambda self, *args, **kwargs: provider},
+    )()
+    task_id = create_task(status="ready")
+
+    response = client.post(f"/agent-runs/{task_id}/start", json={"model_provider": "mock"})
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["failure_category"] == "model_provider_error"
+    assert "private-provider-key" not in payload["failure_summary"]
 
 
 def test_start_stops_after_max_steps(client: TestClient) -> None:
@@ -339,6 +400,46 @@ def test_start_stops_after_max_steps(client: TestClient) -> None:
     assert payload["status"] == "failed"
     assert len(payload["steps"]) == 2
     assert "Maximum step limit" in payload["error_message"]
+    assert payload["failure_category"] == "max_steps_reached"
+
+
+def test_unknown_tool_failure_is_persisted_and_returned_in_detail(
+    client: TestClient,
+) -> None:
+    provider = MockModelProvider(
+        responses=[
+            ModelProviderResponse(
+                content="",
+                tool_calls=[ModelToolCall(id="unknown", name="delete_repository")],
+            )
+        ]
+    )
+    app.dependency_overrides[get_model_provider_factory] = lambda: type(
+        "Factory",
+        (),
+        {"create": lambda self, *args, **kwargs: provider},
+    )()
+    task_id = create_task(status="ready")
+
+    response = client.post(
+        f"/agent-runs/{task_id}/start",
+        json={"model_provider": "mock", "max_tool_errors": 1},
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["failure_category"] == "unknown_tool"
+    run_id = UUID(payload["id"])
+    with TestingSessionLocal() as db:
+        failure = db.scalar(select(AgentRunFailure).where(AgentRunFailure.agent_run_id == run_id))
+        assert failure.category == "unknown_tool"
+        assert failure.source_event_id is not None
+    detail = client.get(f"/agent-runs/{run_id}").json()
+    assert detail["failure_category"] == "unknown_tool"
+    assert detail["failure_summary"] == payload["failure_summary"]
+    failure_response = client.get(f"/agent-runs/{run_id}/failure")
+    assert failure_response.status_code == 200
+    assert failure_response.json()["category"] == "unknown_tool"
 
 
 def test_invalid_run_configuration_is_rejected(client: TestClient) -> None:
@@ -367,6 +468,10 @@ def test_run_configuration_and_prompt_preview_are_stored_and_inspectable(
         "include_issue_comments": False,
         "enable_test_tool": False,
         "run_mode": "scripted",
+        "max_repair_attempts": 0,
+        "run_tests_after_patch": True,
+        "stop_on_first_passing_patch": True,
+        "include_test_failure_feedback": True,
     }
 
     response = client.post(f"/agent-runs/{task_id}/start", json=request_payload)

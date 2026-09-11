@@ -53,6 +53,14 @@ class Settings(BaseSettings):
     )
     patch_max_bytes: int = Field(default=1_000_000, ge=1024, alias="PATCH_MAX_BYTES")
     patch_max_changed_files: int = Field(default=100, ge=1, alias="PATCH_MAX_CHANGED_FILES")
+    max_patch_files: int = Field(default=20, ge=1, alias="MAX_PATCH_FILES")
+    max_patch_changed_lines: int = Field(default=1000, ge=1, alias="MAX_PATCH_CHANGED_LINES")
+    block_lockfile_changes_by_default: bool = Field(
+        default=True, alias="BLOCK_LOCKFILE_CHANGES_BY_DEFAULT"
+    )
+    block_dependency_file_changes_by_default: bool = Field(
+        default=True, alias="BLOCK_DEPENDENCY_FILE_CHANGES_BY_DEFAULT"
+    )
     openai_api_key: str | None = Field(default=None, alias="OPENAI_API_KEY")
     openai_default_model: str = Field(default="gpt-4o-mini", alias="OPENAI_DEFAULT_MODEL")
     enable_real_model_calls: bool = Field(default=False, alias="ENABLE_REAL_MODEL_CALLS")

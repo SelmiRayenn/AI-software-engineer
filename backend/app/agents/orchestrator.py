@@ -8,12 +8,12 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Self
 
-from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app import crud
 from app.agents.loop import AgentLoop, registered_tool_names
 from app.agents.prompts import redact_prompt_text, render_agent_prompts
+from app.agents.repairs import AgentRepairService
 from app.agents.tools import AgentWorkspaceTools, ToolError
 from app.core.config import settings
 from app.core.run_statuses import (
@@ -23,12 +23,28 @@ from app.core.run_statuses import (
     RUN_STATUS_RUNNING,
 )
 from app.core.task_statuses import TASK_STATUS_READY
-from app.evaluation import EvaluationService
+from app.evaluation import EvaluationError, EvaluationService
+from app.failures import FailureClassificationService
+from app.failures.categories import (
+    FAILURE_DOCKER_UNAVAILABLE,
+    FAILURE_MODEL_PROVIDER_ERROR,
+    FAILURE_PATCH_APPLY_FAILED,
+    FAILURE_PATCH_QUALITY_BLOCKED,
+    FAILURE_REPOSITORY_CHECKOUT_FAILED,
+    FAILURE_SETUP_FAILED,
+    FAILURE_TIMEOUT,
+    FAILURE_UNKNOWN,
+)
 from app.model_providers import ModelProvider, ModelProviderFactory
-from app.models import AgentEvent, AgentRun, BenchmarkTask, GeneratedPatch
+from app.models import AgentEvent, AgentRun, BenchmarkTask
+from app.patches import PatchApplyError, PatchSafetyError, PatchService
 from app.repository_indexing import RepositoryIndexService
 from app.repository_indexing.semantic import RepositoryEmbeddingsService
-from app.sandbox import SandboxWorkspaceManager, SandboxWorkspaceSafetyError
+from app.sandbox import (
+    DockerUnavailableError,
+    SandboxWorkspaceManager,
+    SandboxWorkspaceSafetyError,
+)
 from app.sandbox.workspace import SandboxWorkspaceMetadata
 from app.schemas.agent_run import (
     AgentRunConfig,
@@ -175,12 +191,17 @@ class AgentRunOrchestrator:
             include_issue_comments=run_config.include_issue_comments,
             enable_test_tool=run_config.enable_test_tool,
             run_mode=run_config.run_mode,
+            max_repair_attempts=run_config.max_repair_attempts,
+            run_tests_after_patch=run_config.run_tests_after_patch,
+            stop_on_first_passing_patch=run_config.stop_on_first_passing_patch,
+            include_test_failure_feedback=run_config.include_test_failure_feedback,
         )
         prompt_preview = prompts.redacted_preview()
         steps: list[AgentRunTraceStep] = []
         generated_patch_id: uuid.UUID | None = None
         changed_files: list[str] = []
         error_message: str | None = None
+        failure_category: str | None = None
 
         try:
             self._mark_run_status(run, RUN_STATUS_RUNNING)
@@ -233,10 +254,20 @@ class AgentRunOrchestrator:
                 )
                 setup_result = test_executor.run_setup_commands()
                 if not setup_result.passed:
+                    failure_category = FAILURE_SETUP_FAILED
                     raise AgentRunStartError("Setup phase failed.")
                 test_executor.run_baseline_tests(run_setup=False)
                 self._create_repository_index(run, workspace)
-                loop_result = AgentLoop(
+                repairs = AgentRepairService(
+                    db=self._db,
+                    run=run,
+                    config=run_config,
+                    tests=test_executor,
+                    patches=PatchService(
+                        db=self._db, agent_run_id=run.id, workspace_path=workspace.path
+                    ),
+                )
+                loop = AgentLoop(
                     db=self._db,
                     agent_run=run,
                     benchmark_task=task,
@@ -245,19 +276,31 @@ class AgentRunOrchestrator:
                     tools=tools,
                     config=run_config,
                     prompts=prompts,
-                ).run()
-                steps = loop_result.steps
-                submitted_patch = loop_result.submitted_patch
-                if submitted_patch is None:
-                    raise AgentRunStartError(
-                        loop_result.error_message
-                        or f"Agent loop stopped without a patch: {loop_result.stop_reason}."
+                    repairs=repairs,
+                )
+                try:
+                    loop_result = loop.run()
+                except Exception as exc:
+                    repairs.finish(
+                        stop_reason="unrecoverable_error",
+                        error_message=redact_prompt_text(str(exc)),
+                        failure_category=_failure_category_for_exception(exc),
                     )
-                generated_patch_id = submitted_patch.generated_patch_id
-                changed_files = submitted_patch.changed_files
-                post_patch_result = test_executor.run_post_patch_tests()
-                if not post_patch_result.passed:
-                    raise AgentRunStartError("Post-patch test phase failed.")
+                    raise AgentRunStartError(redact_prompt_text(str(exc))) from exc
+                steps = loop_result.steps
+                outcome = repairs.finish(
+                    stop_reason=loop_result.stop_reason,
+                    error_message=loop_result.error_message,
+                    failure_category=loop_result.failure_category,
+                )
+                failure_category = outcome.failure_category
+                if outcome.patch:
+                    generated_patch_id = outcome.patch.id
+                    changed_files = outcome.patch.changed_files
+                if not outcome.accepted:
+                    raise AgentRunStartError(
+                        outcome.failure_summary or "Repair attempts exhausted."
+                    )
 
             self._mark_run_status(run, RUN_STATUS_COMPLETED)
             metric = EvaluationService(db=self._db, agent_run_id=run.id).evaluate()
@@ -280,15 +323,39 @@ class AgentRunOrchestrator:
             ValueError,
         ) as exc:
             error_message = redact_prompt_text(str(exc))[:2000]
+            failure_category = failure_category or _failure_category_for_exception(exc)
+            run.failure_summary = error_message
             self._mark_run_status(run, RUN_STATUS_FAILED)
-            self._log_event(
+            failure_event = self._log_event(
                 run,
                 "agent_run_failed",
                 {
                     "step_count": len(steps),
                     "error_message": error_message,
+                    "failure_category": failure_category,
                 },
             )
+            FailureClassificationService(self._db).classify(
+                agent_run_id=run.id,
+                category=failure_category,
+                summary=error_message,
+                source_event_id=failure_event.id,
+            )
+            if run.final_patch_id:
+                generated_patch_id = run.final_patch_id
+                changed_files = run.generated_patch.changed_files
+                try:
+                    EvaluationService(db=self._db, agent_run_id=run.id).evaluate(
+                        include_failed=True
+                    )
+                except EvaluationError as evaluation_error:
+                    self._log_event(
+                        run,
+                        "evaluation_failed",
+                        {
+                            "error_message": redact_prompt_text(str(evaluation_error))[:2000],
+                        },
+                    )
 
         self._db.refresh(run)
         return AgentRunStartResponse(
@@ -306,6 +373,11 @@ class AgentRunOrchestrator:
             error_message=error_message,
             run_config=run_config,
             prompt_preview=prompt_preview,
+            repair_attempts_used=run.repair_attempts_used,
+            final_patch_id=run.final_patch_id,
+            final_patch_passed_tests=run.final_patch_passed_tests,
+            failure_summary=run.failure_summary,
+            failure_category=run.failure.category if run.failure else None,
         )
 
     def _create_agent_run(self, *, task: BenchmarkTask, provider: ModelProvider) -> AgentRun:
@@ -367,15 +439,16 @@ class AgentRunOrchestrator:
         if settings.embedding_auto_build:
             RepositoryEmbeddingsService(db=self._db, agent_run_id=run.id).build()
 
-    def _log_event(self, run: AgentRun, event_type: str, payload: dict[str, object]) -> None:
-        self._db.add(
-            AgentEvent(
-                agent_run_id=run.id,
-                event_type=event_type,
-                payload_json=payload,
-            )
+    def _log_event(self, run: AgentRun, event_type: str, payload: dict[str, object]) -> AgentEvent:
+        event = AgentEvent(
+            agent_run_id=run.id,
+            event_type=event_type,
+            payload_json=payload,
         )
+        self._db.add(event)
         self._db.commit()
+        self._db.refresh(event)
+        return event
 
 
 def _run_workspace_command(
@@ -405,5 +478,24 @@ def _run_workspace_command(
 
 
 def latest_generated_patch_id(db: Session, agent_run_id: uuid.UUID) -> uuid.UUID | None:
-    patch = db.scalar(select(GeneratedPatch).where(GeneratedPatch.agent_run_id == agent_run_id))
+    run = db.get(AgentRun, agent_run_id)
+    patch = run.generated_patch if run else None
     return patch.id if patch is not None else None
+
+
+def _failure_category_for_exception(exc: Exception) -> str:
+    message = str(exc).lower()
+    cause = exc.__cause__
+    if isinstance(exc, DockerUnavailableError) or isinstance(cause, DockerUnavailableError):
+        return FAILURE_DOCKER_UNAVAILABLE
+    if isinstance(exc, (TimeoutError, subprocess.TimeoutExpired)) or "timeout" in message:
+        return FAILURE_TIMEOUT
+    if isinstance(exc, WorkspacePreparationError):
+        return FAILURE_REPOSITORY_CHECKOUT_FAILED
+    if isinstance(exc, PatchApplyError):
+        return FAILURE_PATCH_APPLY_FAILED
+    if isinstance(exc, PatchSafetyError) and "quality guardrail" in message:
+        return FAILURE_PATCH_QUALITY_BLOCKED
+    if "model provider" in message or "provider call failed" in message:
+        return FAILURE_MODEL_PROVIDER_ERROR
+    return FAILURE_UNKNOWN

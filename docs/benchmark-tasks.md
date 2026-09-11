@@ -24,11 +24,16 @@ Request:
   "fix_commit": null,
   "setup_commands": ["python -m pip install -e ."],
   "test_commands": ["pytest"],
+  "allow_lockfile_changes": false,
+  "allow_dependency_file_changes": false,
   "notes": "Optional benchmark curation note."
 }
 ```
 
 The backend fetches repository metadata, issue metadata, issue comments, pull request metadata, changed files, commits, and PR diff data from GitHub. It then reuses or creates the `Repository`, creates the `BenchmarkTask`, and stores the hidden `GoldPatch`.
+
+Dependency manifests and lockfiles are blocked by the patch quality policy unless the corresponding
+task option is explicitly enabled by a benchmark curator.
 
 If `fix_commit` is omitted, the backend derives it from the PR merge commit first, then the PR head commit.
 

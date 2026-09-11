@@ -160,7 +160,9 @@ class DockerSandboxRunner:
                     if result.timed_out:
                         break
 
-                status = "passed" if all(result.passed for result in test_results) else "tests_failed"
+                status = (
+                    "passed" if all(result.passed for result in test_results) else "tests_failed"
+                )
                 response = self._response(
                     status=status,
                     workspace=workspace,
@@ -215,7 +217,9 @@ class DockerSandboxRunner:
         finally:
             if response is not None:
                 try:
-                    response.workspace_retained = self._workspace_manager.cleanup_workspace(workspace)
+                    response.workspace_retained = self._workspace_manager.cleanup_workspace(
+                        workspace
+                    )
                 except (OSError, SandboxWorkspaceError) as exc:
                     response.workspace_retained = True
                     response.cleanup_error = str(exc)

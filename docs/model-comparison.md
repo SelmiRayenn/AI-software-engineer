@@ -61,6 +61,7 @@ Each entry in `runs`, ordered as requested, contains:
 - `modified_files_count`, `unrelated_files_count`, and `tokens_used`.
 - `estimated_cost` in USD and `execution_time_seconds`.
 - `failure_reason`, redacted and bounded, or null on success.
+- `failure_category` and `failure_summary` from the run's persisted failure classification.
 
 Patch text, changed-file lists, prompts, issue bodies, and gold solution data are not part of the
 comparison read model. Existing run detail, patch, and test endpoints can inspect the generated
@@ -104,6 +105,10 @@ Each attempted model records `model_comparison_run_started` and `model_compariso
 plus the normal workspace, model, tool, test, patch, and evaluation events. Evaluation failures
 record `model_comparison_evaluation_failed`. Comparison membership is kept in backend events;
 neither that membership nor another model's results are injected into model prompts.
+
+Failed comparison runs also persist an `AgentRunFailure`. Provider configuration failures are
+classified as `model_provider_error`; loop, test, patch, timeout, and repair failures retain their
+more specific categories. See [failure classification](failure-classification.md).
 
 Provider construction uses the existing ModelProviderFactory and gates:
 

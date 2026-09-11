@@ -20,6 +20,8 @@ class BenchmarkTaskBase(BaseModel):
     setup_commands: list[str] = Field(default_factory=list)
     test_commands: list[str] = Field(default_factory=list)
     notes: str | None = None
+    allow_lockfile_changes: bool = False
+    allow_dependency_file_changes: bool = False
     status: str = "draft"
 
     @field_validator("status")
@@ -51,6 +53,8 @@ class BenchmarkTaskFromGitHubRequest(BaseModel):
     setup_commands: list[str] = Field(default_factory=list, max_length=50)
     test_commands: list[str] = Field(min_length=1, max_length=50)
     notes: str | None = None
+    allow_lockfile_changes: bool = False
+    allow_dependency_file_changes: bool = False
 
     @field_validator("setup_commands", "test_commands")
     @classmethod

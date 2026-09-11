@@ -11,7 +11,7 @@ from sqlalchemy.pool import StaticPool
 
 from app.core.test_phases import TEST_PHASE_BASELINE, TEST_PHASE_POST_PATCH, TEST_PHASE_SETUP
 from app.db.base import Base
-from app.models import AgentRun, BenchmarkTask, GeneratedPatch, Repository
+from app.models import AgentRun, AgentRunFailure, BenchmarkTask, GeneratedPatch, Repository
 from app.models import TestResult as ResultRecord
 from app.test_execution import TestExecutionSafetyError as ExecutionSafetyError
 from app.test_execution import TestExecutionService as ExecutionService
@@ -172,6 +172,9 @@ def test_setup_failure_marks_run_failed(db: Session, workspace: Path) -> None:
     assert stored.phase == TEST_PHASE_SETUP
     assert stored.exit_code == 2
     assert stored.stderr == "setup failed"
+    failure = db.scalar(select(AgentRunFailure).where(AgentRunFailure.agent_run_id == run_id))
+    assert failure.category == "setup_failed"
+    assert failure.source_event_id is not None
 
 
 def test_post_patch_failure_marks_run_failed(db: Session, workspace: Path) -> None:
@@ -184,6 +187,21 @@ def test_post_patch_failure_marks_run_failed(db: Session, workspace: Path) -> No
     run = db.get(AgentRun, run_id)
     assert run.status == "failed"
     assert run.completed_at is not None
+    assert run.failure.category == "post_patch_tests_failed"
+
+
+def test_setup_timeout_is_classified(db: Session, workspace: Path) -> None:
+    setup_command = python_command("import time; time.sleep(2)")
+    run_id = create_agent_run(db, workspace, setup_commands=[setup_command])
+
+    result = ExecutionService(
+        db=db,
+        agent_run_id=run_id,
+        command_timeout_seconds=1,
+    ).run_setup_commands()
+
+    assert result.passed is False
+    assert db.get(AgentRun, run_id).failure.category == "timeout"
 
 
 def create_agent_run(

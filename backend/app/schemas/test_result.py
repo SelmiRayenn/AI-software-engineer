@@ -7,6 +7,8 @@ from pydantic import BaseModel, ConfigDict
 class TestResultBase(BaseModel):
     agent_run_id: UUID
     phase: str
+    generated_patch_id: UUID | None = None
+    attempt_number: int | None = None
     command: str
     passed: bool
     exit_code: int

@@ -11,6 +11,7 @@ from uuid import UUID
 
 from sqlalchemy.orm import Session
 
+from app.agents.prompts import redact_prompt_text
 from app.core.test_phases import TEST_PHASE_POST_PATCH
 from app.models import AgentEvent, AgentRun, TestResult
 from app.patches import PatchService
@@ -81,6 +82,7 @@ class SubmittedPatchResult:
     generated_patch_id: UUID
     patch_text: str
     changed_files: list[str]
+    version: int = 1
 
 
 @dataclass
@@ -342,10 +344,12 @@ class AgentWorkspaceTools:
             )
             metadata.files_read.extend(diff.changed_files)
             metadata.extra["changed_files"] = diff.changed_files
+            metadata.extra["patch_version"] = generated_patch.version
             return SubmittedPatchResult(
                 generated_patch_id=generated_patch.id,
                 patch_text=diff.patch_text,
                 changed_files=diff.changed_files,
+                version=generated_patch.version,
             )
 
         return self._execute_tool("submit_patch", {}, operation)
@@ -395,7 +399,7 @@ class AgentWorkspaceTools:
             "tool_name": tool_name,
             "input": _sanitize_for_log(input_args),
             "success": success,
-            "error_message": error_message,
+            "error_message": redact_prompt_text(error_message)[:2000] if error_message else None,
             "duration_seconds": duration_seconds,
             "files_read": _unique_limited(metadata.files_read),
             "files_modified": _unique_limited(metadata.files_modified),

@@ -54,9 +54,7 @@ class SandboxWorkspaceManager:
     ) -> None:
         self._workspace_root = _resolve_workspace_root(workspace_root)
         self._retain_workspaces = (
-            settings.sandbox_retain_workspaces
-            if retain_workspaces is None
-            else retain_workspaces
+            settings.sandbox_retain_workspaces if retain_workspaces is None else retain_workspaces
         )
 
     @property
@@ -125,7 +123,9 @@ class SandboxWorkspaceManager:
 
 
 def _resolve_workspace_root(workspace_root: str | Path | None = None) -> Path:
-    configured_root = workspace_root if workspace_root is not None else settings.sandbox_workspace_root
+    configured_root = (
+        workspace_root if workspace_root is not None else settings.sandbox_workspace_root
+    )
     if configured_root:
         root = Path(configured_root).expanduser()
     else:

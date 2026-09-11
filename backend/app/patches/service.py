@@ -8,12 +8,13 @@ from pathlib import Path, PurePosixPath, PureWindowsPath
 from typing import Any
 from uuid import UUID
 
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from app.core.config import settings
 from app.core.run_statuses import RUN_STATUS_QUEUED, RUN_STATUS_RUNNING
 from app.models import AgentEvent, AgentRun, GeneratedPatch
+from app.patch_quality import PatchQualityRejectedError, PatchQualityService
 
 PATCH_APPLY_ALLOWED_STATUSES = {RUN_STATUS_QUEUED, RUN_STATUS_RUNNING}
 _GIT_COMMAND_TIMEOUT_SECONDS = 30
@@ -83,6 +84,7 @@ class PatchService:
         workspace_path: str | Path | None = None,
         max_patch_bytes: int | None = None,
         max_changed_files: int | None = None,
+        quality_service: PatchQualityService | None = None,
     ) -> None:
         self._db = db
         self._agent_run_id = agent_run_id
@@ -104,6 +106,7 @@ class PatchService:
 
         self._max_patch_bytes = max_patch_bytes or settings.patch_max_bytes
         self._max_changed_files = max_changed_files or settings.patch_max_changed_files
+        self._quality_service = quality_service or PatchQualityService(db)
         self._ensure_git_workspace()
 
     def get_current_workspace_diff(self) -> WorkspaceDiffResult:
@@ -142,6 +145,7 @@ class PatchService:
                 raise PatchSafetyError("Patch must include at least one changed file.")
             stats = self.calculate_patch_size_statistics(patch_text, changed_files)
             self._validate_patch_limits(patch_text, changed_files)
+            self._enforce_patch_quality(patch_text, changed_files)
         except PatchError as exc:
             return PatchValidationResult(
                 valid=False,
@@ -215,6 +219,20 @@ class PatchService:
             raise PatchSafetyError("Patch must include at least one changed file.")
         stats = self.calculate_patch_size_statistics(patch_text, changed_files)
         self._validate_patch_limits(patch_text, changed_files)
+        self._enforce_patch_quality(patch_text, changed_files)
+
+        if self.get_current_workspace_diff().patch_text == patch_text:
+            reverse_check = self._run_git_with_input(
+                ["apply", "--reverse", "--check", "--whitespace=nowarn"],
+                patch_text,
+            )
+            if reverse_check.returncode == 0:
+                return PatchEnsureAppliedResult(
+                    applied=False,
+                    already_applied=True,
+                    changed_files=changed_files,
+                    stats=stats,
+                )
 
         clean_check = self._run_git_with_input(
             ["apply", "--check", "--whitespace=nowarn"],
@@ -246,35 +264,77 @@ class PatchService:
         raise PatchApplyError(clean_check.stderr.strip() or "Patch does not apply cleanly.")
 
     def store_generated_patch(self, *, patch_text: str, changed_files: list[str]) -> GeneratedPatch:
+        self._ensure_run_allows_patch_application()
         changed_files = self._sanitize_changed_files(changed_files)
         stats = self.calculate_patch_size_statistics(patch_text, changed_files)
         self._validate_patch_limits(patch_text, changed_files)
+        quality_analysis = self._enforce_patch_quality(patch_text, changed_files)
 
-        generated_patch = self._db.scalar(
-            select(GeneratedPatch).where(GeneratedPatch.agent_run_id == self._agent_run_id)
-        )
-        if generated_patch is None:
-            generated_patch = GeneratedPatch(
-                agent_run_id=self._agent_run_id,
-                patch_text=patch_text,
-                changed_files=changed_files,
+        version = self._db.scalar(
+            select(func.max(GeneratedPatch.version)).where(
+                GeneratedPatch.agent_run_id == self._agent_run_id
             )
-            self._db.add(generated_patch)
-        else:
-            generated_patch.patch_text = patch_text
-            generated_patch.changed_files = changed_files
+        )
+        generated_patch = GeneratedPatch(
+            agent_run_id=self._agent_run_id,
+            patch_text=patch_text,
+            changed_files=changed_files,
+            version=(version or 0) + 1,
+        )
+        self._db.add(generated_patch)
+        self._db.flush()
+        quality = self._quality_service.store(
+            generated_patch,
+            quality_analysis,
+            commit=False,
+        )
 
         self._db.commit()
         self._db.refresh(generated_patch)
+        self._db.refresh(quality)
+        self._db.expire(self._agent_run, ["generated_patches"])
         self._log_event(
             "generated_patch_stored",
             {
                 "generated_patch_id": str(generated_patch.id),
+                "version": generated_patch.version,
                 "changed_files": changed_files,
                 "stats": _stats_payload(stats),
+                "quality": {
+                    "total_changed_lines": quality.total_changed_lines,
+                    "unrelated_files_count": len(quality.unrelated_files),
+                    "whitespace_only": quality.whitespace_only,
+                    "warnings": quality.warnings,
+                },
             },
         )
         return generated_patch
+
+    def restore_candidate(self, patch: GeneratedPatch) -> None:
+        """Restore a selected base-relative candidate using checked, workspace-only diffs."""
+        self._ensure_run_allows_patch_application()
+        if patch.agent_run_id != self._agent_run_id:
+            raise PatchSafetyError("Patch belongs to another run.")
+        current = self.get_current_workspace_diff()
+        self._validate_patch_limits(
+            patch.patch_text, self.list_changed_files_from_patch(patch.patch_text)
+        )
+        if current.patch_text == patch.patch_text:
+            return
+        if current.patch_text.strip():
+            check = self._run_git_with_input(
+                ["apply", "--reverse", "--check", "--whitespace=nowarn"], current.patch_text
+            )
+            if check.returncode != 0:
+                raise PatchApplyError("Could not safely restore the selected patch workspace.")
+            undo = self._run_git_with_input(
+                ["apply", "--reverse", "--whitespace=nowarn"], current.patch_text
+            )
+            if undo.returncode != 0:
+                raise PatchApplyError("Could not restore the selected patch workspace.")
+        self.ensure_patch_applied(patch.patch_text)
+        if self.get_current_workspace_diff().patch_text != patch.patch_text:
+            raise PatchApplyError("Restored workspace differs from the selected candidate.")
 
     def list_changed_files_from_patch(self, patch_text: str) -> list[str]:
         self._validate_patch_size(patch_text)
@@ -362,7 +422,9 @@ class PatchService:
         return candidate
 
     def _sanitize_changed_files(self, changed_files: list[str]) -> list[str]:
-        normalized = sorted({self._normalize_patch_path(relative_path) for relative_path in changed_files})
+        normalized = sorted(
+            {self._normalize_patch_path(relative_path) for relative_path in changed_files}
+        )
         self._validate_changed_file_count(normalized)
         return normalized
 
@@ -422,21 +484,38 @@ class PatchService:
         self._validate_patch_size(patch_text)
         self._validate_changed_file_count(changed_files)
 
+    def _enforce_patch_quality(self, patch_text: str, changed_files: list[str]):
+        analysis = self._quality_service.analyze_patch(
+            patch_text=patch_text,
+            changed_files=changed_files,
+            benchmark_task=self._agent_run.benchmark_task,
+        )
+        try:
+            self._quality_service.enforce(analysis)
+        except PatchQualityRejectedError as exc:
+            self._log_event(
+                "patch_quality_rejected",
+                {
+                    "changed_file_count": analysis.changed_file_count,
+                    "total_changed_lines": analysis.total_changed_lines,
+                    "violations": analysis.hard_limit_violations,
+                },
+            )
+            raise PatchSafetyError(str(exc)) from exc
+        return analysis
+
     def _validate_patch_size(self, patch_text: str) -> None:
         if len(patch_text.encode("utf-8")) > self._max_patch_bytes:
             raise PatchSafetyError(f"Patch exceeds maximum size of {self._max_patch_bytes} bytes.")
 
     def _validate_changed_file_count(self, changed_files: list[str]) -> None:
         if len(changed_files) > self._max_changed_files:
-            raise PatchSafetyError(
-                f"Patch changes more than {self._max_changed_files} files."
-            )
+            raise PatchSafetyError(f"Patch changes more than {self._max_changed_files} files.")
 
     def _reject_binary_patch(self, patch_text: str) -> None:
         for line in patch_text.splitlines():
-            if (
-                line == "GIT binary patch"
-                or line.startswith(("Binary files ", "literal ", "delta "))
+            if line == "GIT binary patch" or line.startswith(
+                ("Binary files ", "literal ", "delta ")
             ):
                 raise PatchSafetyError("Binary patches are not supported.")
 

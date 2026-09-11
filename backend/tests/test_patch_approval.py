@@ -72,7 +72,9 @@ def test_approve_patch(client: TestClient, db: Session) -> None:
     assert payload["review"]["reviewer_name"] == "Ada"
 
     with TestingSessionLocal() as session:
-        review = session.scalar(select(HumanReview).where(HumanReview.generated_patch_id == patch_id))
+        review = session.scalar(
+            select(HumanReview).where(HumanReview.generated_patch_id == patch_id)
+        )
         assert review is not None
         assert review.decision == "approved"
 

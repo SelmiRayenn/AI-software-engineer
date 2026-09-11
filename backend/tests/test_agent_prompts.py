@@ -39,6 +39,11 @@ def test_prompt_rendering_includes_issue_repository_tools_and_constraints() -> N
     assert "Maximum steps: 12" in prompts.developer_safety_prompt
     assert "Maximum tool errors: 2" in prompts.developer_safety_prompt
     assert "90 seconds" in prompts.developer_safety_prompt
+    assert "Patch quality limits: 20 files and 1000 added/removed lines" in (
+        prompts.developer_safety_prompt
+    )
+    assert "Lockfile changes: blocked" in prompts.developer_safety_prompt
+    assert "Dependency manifest changes: blocked" in prompts.developer_safety_prompt
     assert '"name": "submit_patch"' in prompts.patch_submission_instructions
 
 

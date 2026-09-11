@@ -59,7 +59,9 @@ class GitHubBenchmarkTaskCreator:
             commits_data,
         )
         if not pull_request.merged and not pull_request.merged_at:
-            raise BenchmarkTaskCreationError("Pull request must be merged to create a benchmark task")
+            raise BenchmarkTaskCreationError(
+                "Pull request must be merged to create a benchmark task"
+            )
 
         repository_preview = self._github_service.repository_preview_from_data(repository_data)
         issue_preview = self._github_service.issue_preview_from_data(issue_data)
@@ -71,7 +73,9 @@ class GitHubBenchmarkTaskCreator:
             pull_request
         )
         if not fix_commit:
-            raise BenchmarkTaskCreationError("fix_commit could not be derived from pull request data")
+            raise BenchmarkTaskCreationError(
+                "fix_commit could not be derived from pull request data"
+            )
 
         patch_text = self._pull_request_diff(repo_ref, request.pull_request_number, files_data)
         changed_files = [file.filename for file in pull_request.files]
@@ -100,6 +104,8 @@ class GitHubBenchmarkTaskCreator:
             setup_commands=request.setup_commands,
             test_commands=request.test_commands,
             notes=request.notes,
+            allow_lockfile_changes=request.allow_lockfile_changes,
+            allow_dependency_file_changes=request.allow_dependency_file_changes,
             status=TASK_STATUS_READY,
         )
         self._db.add(task)

@@ -96,6 +96,7 @@ def test_unknown_tool_is_rejected(db: Session, workspace: Path) -> None:
     assert result.stop_reason == "max_tool_errors"
     assert result.steps[0].success is False
     assert result.steps[0].error_message == "Unknown tool: delete_repository"
+    assert result.failure_category == "unknown_tool"
     failed_event = event_by_type(db, "tool_call_failed")
     assert failed_event.payload_json["tool_name"] == "delete_repository"
 
@@ -141,6 +142,7 @@ def test_malformed_tool_call_is_rejected(db: Session, workspace: Path) -> None:
 
     assert result.stop_reason == "max_tool_errors"
     assert "Unexpected arguments for read_file" in result.steps[0].error_message
+    assert result.failure_category == "malformed_tool_call"
 
 
 def test_submit_patch_stops_before_later_mock_responses(db: Session, workspace: Path) -> None:
@@ -173,6 +175,7 @@ def test_max_steps_stops_loop_and_logs_event(db: Session, workspace: Path) -> No
     assert result.stop_reason == "max_steps"
     assert len(result.steps) == 2
     assert result.error_message == "Maximum step limit of 2 reached."
+    assert result.failure_category == "max_steps_reached"
     assert event_by_type(db, "step_limit_reached") is not None
 
 
@@ -197,6 +200,18 @@ def test_max_tool_errors_stops_loop(db: Session, workspace: Path) -> None:
     assert result.tool_errors == 2
     assert result.model_calls == 2
     assert len(result.steps) == 2
+    assert result.failure_category == "unknown_tool"
+
+
+def test_provider_error_returns_failure_category(db: Session, workspace: Path) -> None:
+    provider = MockModelProvider()
+    provider.generate_response = Mock(side_effect=RuntimeError("provider offline"))
+    loop = create_loop(db, workspace, provider=provider)
+
+    result = loop.run()
+
+    assert result.stop_reason == "provider_error"
+    assert result.failure_category == "model_provider_error"
 
 
 def test_disabled_test_tool_is_not_advertised_or_executable(

@@ -38,3 +38,5 @@ class GeneratedPatchResponse(BaseModel):
     stats: PatchSizeStatsRead
     review_status: str = "pending"
     created_at: datetime
+    version: int = 1
+    is_selected: bool = False

@@ -9,6 +9,9 @@ from sqlalchemy.orm import Session
 from app.agents.orchestrator import AgentRunOrchestrator, BenchmarkTaskNotReadyError
 from app.agents.prompts import redact_prompt_text
 from app.evaluation import EvaluationService
+from app.failures import FailureClassificationService
+from app.failures.categories import FAILURE_MODEL_PROVIDER_ERROR
+from app.failures.service import classify_failure_text
 from app.model_providers import ModelProviderConfigError
 from app.models import AgentEvent, AgentRun, BenchmarkTask, EvaluationMetric
 from app.schemas.agent_run import AgentRunStartRequest
@@ -111,7 +114,15 @@ class ModelComparisonService:
                 if isinstance(exc, ModelProviderConfigError)
                 else f"Model run failed ({type(exc).__name__})."
             )
-            self._fail_run(run_id, failure_reason)
+            self._fail_run(
+                run_id,
+                failure_reason,
+                category=(
+                    FAILURE_MODEL_PROVIDER_ERROR
+                    if isinstance(exc, ModelProviderConfigError)
+                    else classify_failure_text(failure_reason)
+                ),
+            )
 
         try:
             evaluator = EvaluationService(db=self._db, agent_run_id=run_id)
@@ -121,7 +132,11 @@ class ModelComparisonService:
             self._db.rollback()
             evaluation_error = f"Evaluation failed ({type(exc).__name__})."
             failure_reason = failure_reason or evaluation_error
-            self._fail_run(run_id, failure_reason)
+            self._fail_run(
+                run_id,
+                failure_reason,
+                category=classify_failure_text(failure_reason),
+            )
             self._event(
                 run_id,
                 "model_comparison_evaluation_failed",
@@ -199,6 +214,11 @@ class ModelComparisonService:
                     status=run.status,
                     metric_id=metric.id if metric else None,
                     failure_reason=_safe_reason(failures.get(run.id)),
+                    repair_attempts_used=run.repair_attempts_used,
+                    final_patch_id=run.final_patch_id,
+                    final_patch_passed_tests=run.final_patch_passed_tests,
+                    failure_summary=run.failure_summary,
+                    failure_category=run.failure.category if run.failure else None,
                     **values,
                 )
             )
@@ -217,24 +237,34 @@ class ModelComparisonService:
             raise ModelComparisonNotFoundError("Benchmark task not found.")
         return task
 
-    def _fail_run(self, run_id: UUID, reason: str) -> None:
+    def _fail_run(self, run_id: UUID, reason: str, *, category: str) -> None:
         run = self._db.get(AgentRun, run_id)
         run.status = "failed"
         run.completed_at = run.completed_at or datetime.now(UTC)
-        self._event(run_id, "agent_run_failed", {"error_message": _safe_reason(reason)})
-        self._db.commit()
+        event = self._event(
+            run_id,
+            "agent_run_failed",
+            {"error_message": _safe_reason(reason), "failure_category": category},
+        )
+        self._db.flush()
+        FailureClassificationService(self._db).classify(
+            agent_run_id=run_id,
+            category=category,
+            summary=reason,
+            source_event_id=event.id,
+        )
 
     def _event(
         self, run_id: UUID, event_type: str, payload: dict, *, created_at: datetime | None = None
-    ) -> None:
-        self._db.add(
-            AgentEvent(
-                agent_run_id=run_id,
-                event_type=event_type,
-                payload_json=payload,
-                created_at=created_at or datetime.now(UTC),
-            )
+    ) -> AgentEvent:
+        event = AgentEvent(
+            agent_run_id=run_id,
+            event_type=event_type,
+            payload_json=payload,
+            created_at=created_at or datetime.now(UTC),
         )
+        self._db.add(event)
+        return event
 
 
 def calculate_aggregates(runs: list[ModelComparisonRun]) -> ModelComparisonAggregates:

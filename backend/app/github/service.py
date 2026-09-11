@@ -154,7 +154,9 @@ class GitHubService:
     def fetch_issue(self, repo_ref: GitHubRepoRef, issue_number: int) -> dict[str, Any]:
         return self._get_json(f"/repos/{repo_ref.owner}/{repo_ref.name}/issues/{issue_number}")
 
-    def fetch_issue_comments(self, repo_ref: GitHubRepoRef, issue_number: int) -> list[dict[str, Any]]:
+    def fetch_issue_comments(
+        self, repo_ref: GitHubRepoRef, issue_number: int
+    ) -> list[dict[str, Any]]:
         return self._get_paginated_json(
             f"/repos/{repo_ref.owner}/{repo_ref.name}/issues/{issue_number}/comments"
         )
@@ -283,7 +285,9 @@ class GitHubService:
 
         return items
 
-    def _fetch_issue_timeline(self, repo_ref: GitHubRepoRef, issue_number: int) -> list[dict[str, Any]]:
+    def _fetch_issue_timeline(
+        self, repo_ref: GitHubRepoRef, issue_number: int
+    ) -> list[dict[str, Any]]:
         try:
             return self._get_paginated_json(
                 f"/repos/{repo_ref.owner}/{repo_ref.name}/issues/{issue_number}/timeline"

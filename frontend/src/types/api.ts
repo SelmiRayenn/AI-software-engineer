@@ -1,5 +1,25 @@
 export type UUID = string;
 
+export type FailureCategory =
+  | "task_not_ready"
+  | "repository_checkout_failed"
+  | "docker_unavailable"
+  | "setup_failed"
+  | "baseline_tests_failed"
+  | "model_provider_error"
+  | "malformed_tool_call"
+  | "unknown_tool"
+  | "tool_error_limit_reached"
+  | "patch_generation_failed"
+  | "patch_apply_failed"
+  | "patch_quality_blocked"
+  | "post_patch_tests_failed"
+  | "max_steps_reached"
+  | "max_repair_attempts_reached"
+  | "timeout"
+  | "cancelled"
+  | "unknown";
+
 export interface Repository {
   id: UUID;
   name: string;
@@ -31,6 +51,8 @@ export interface AgentRun {
   started_at: string;
   completed_at: string | null;
   patch_review_status: string | null;
+  failure_category: FailureCategory | null;
+  failure_summary: string | null;
 }
 
 export interface AgentRunDetailRepository {
@@ -73,6 +95,8 @@ export interface AgentRunDetail {
   metric_summary: AgentRunMetricSummary | null;
   run_config: AgentRunConfig | null;
   prompt_preview: AgentPromptPreview | null;
+  failure_category: FailureCategory | null;
+  failure_summary: string | null;
 }
 
 export interface AgentRunConfig {

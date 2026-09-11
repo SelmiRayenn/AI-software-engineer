@@ -117,6 +117,7 @@ Initial API surfaces:
 - `POST /benchmark-tasks/{task_id}/mark-ready`
 - `POST /agent-runs/{benchmark_task_id}/start`
 - `GET /agent-runs/{run_id}`
+- `GET /agent-runs/{run_id}/failure`
 - `GET /agent-runs/{run_id}/diff`
 - `GET /agent-runs/{run_id}/patch`
 - `POST /agent-runs/{run_id}/patch/apply`
@@ -128,6 +129,7 @@ Initial API surfaces:
 - `POST /patches/{patch_id}/approve`
 - `POST /patches/{patch_id}/reject`
 - `GET /patches/{patch_id}/review`
+- `GET /patches/{patch_id}/quality`
 - `GET /evaluation/benchmark-tasks/{task_id}/gold-patch`
 
 ## Benchmark Task Lifecycle
@@ -165,8 +167,10 @@ Included now:
 - Deterministic repository file/symbol indexes and path/text/symbol search without embeddings
 - Optional chunk embeddings and hybrid semantic retrieval, with real embedding calls disabled by default
 - Patch management for sandbox workspace diffs, safe patch application, and generated patch records
+- Patch quality guardrails for size, minimality, generated output, and dependency changes
 - Baseline and post-patch test execution with stored command logs
 - First evaluation metrics engine for localization, patches, tests, cost, and runtime
+- Queryable failure classification for failed and cancelled agent runs
 - Human approval workflow for approving or rejecting generated patches
 
 Not included yet:

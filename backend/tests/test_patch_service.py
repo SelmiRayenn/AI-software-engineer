@@ -9,7 +9,8 @@ from sqlalchemy.orm import Session, sessionmaker
 from sqlalchemy.pool import StaticPool
 
 from app.db.base import Base
-from app.models import AgentEvent, AgentRun, BenchmarkTask, GeneratedPatch, Repository
+from app.models import AgentEvent, AgentRun, BenchmarkTask, GeneratedPatch, PatchQuality, Repository
+from app.patch_quality import PatchQualityService
 from app.patches import PatchApplyError, PatchSafetyError, PatchService
 
 engine = create_engine(
@@ -80,13 +81,16 @@ def test_patch_application_success_creates_generated_patch(
     result = PatchService(db=db, agent_run_id=run_id).apply_unified_diff(calculator_patch())
 
     assert result.changed_files == ["src/calculator.py"]
-    assert "return a + b + 1" in (workspace / "src" / "calculator.py").read_text(
-        encoding="utf-8"
-    )
+    assert "return a + b + 1" in (workspace / "src" / "calculator.py").read_text(encoding="utf-8")
     stored_patch = db.scalar(select(GeneratedPatch).where(GeneratedPatch.agent_run_id == run_id))
     assert stored_patch is not None
     assert stored_patch.patch_text == calculator_patch()
     assert stored_patch.changed_files == ["src/calculator.py"]
+    quality = db.scalar(
+        select(PatchQuality).where(PatchQuality.generated_patch_id == stored_patch.id)
+    )
+    assert quality is not None
+    assert quality.total_changed_lines == 2
     event_types = [event.event_type for event in db.scalars(select(AgentEvent)).all()]
     assert "generated_patch_stored" in event_types
     assert "patch_applied" in event_types
@@ -139,12 +143,7 @@ def test_hidden_gold_patch_path_is_rejected(db: Session, workspace: Path) -> Non
 
 def test_binary_patch_is_rejected(db: Session, workspace: Path) -> None:
     run_id = create_agent_run(db, workspace)
-    patch_text = (
-        "diff --git a/image.png b/image.png\n"
-        "GIT binary patch\n"
-        "literal 4\n"
-        "abcd\n"
-    )
+    patch_text = "diff --git a/image.png b/image.png\nGIT binary patch\nliteral 4\nabcd\n"
 
     with pytest.raises(PatchSafetyError):
         PatchService(db=db, agent_run_id=run_id).list_changed_files_from_patch(patch_text)
@@ -186,6 +185,26 @@ def test_changed_file_count_limit_is_enforced(db: Session, workspace: Path) -> N
 
     with pytest.raises(PatchSafetyError):
         service.list_changed_files_from_patch(patch_text)
+
+
+def test_quality_limit_rejects_patch_before_workspace_mutation(
+    db: Session,
+    workspace: Path,
+) -> None:
+    run_id = create_agent_run(db, workspace)
+    service = PatchService(
+        db=db,
+        agent_run_id=run_id,
+        quality_service=PatchQualityService(db, max_patch_changed_lines=1),
+    )
+
+    with pytest.raises(PatchSafetyError, match="quality guardrails"):
+        service.apply_unified_diff(calculator_patch())
+
+    assert "return a + b\n" in (workspace / "src" / "calculator.py").read_text(encoding="utf-8")
+    assert db.scalar(select(GeneratedPatch).where(GeneratedPatch.agent_run_id == run_id)) is None
+    events = db.scalars(select(AgentEvent).where(AgentEvent.agent_run_id == run_id)).all()
+    assert [event.event_type for event in events] == ["patch_quality_rejected"]
 
 
 def test_patch_application_rejects_completed_runs(db: Session, workspace: Path) -> None:

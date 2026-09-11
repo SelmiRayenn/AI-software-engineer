@@ -18,6 +18,7 @@ REPO_ROOT = BACKEND_ROOT.parent
 EXPECTED_TABLES = {
     "agent_events",
     "agent_runs",
+    "agent_run_failures",
     "benchmark_tasks",
     "evaluation_metrics",
     "generated_patches",
@@ -30,6 +31,7 @@ EXPECTED_TABLES = {
     "indexed_symbols",
     "indexed_chunks",
     "chunk_embeddings",
+    "patch_qualities",
 }
 
 
@@ -46,6 +48,8 @@ def test_sqlalchemy_metadata_can_be_loaded() -> None:
     assert "pull_request_number" in Base.metadata.tables["benchmark_tasks"].columns
     assert "workspace_id" in Base.metadata.tables["agent_runs"].columns
     assert "workspace_path" in Base.metadata.tables["agent_runs"].columns
+    assert "allow_lockfile_changes" in Base.metadata.tables["benchmark_tasks"].columns
+    assert "allow_dependency_file_changes" in Base.metadata.tables["benchmark_tasks"].columns
 
 
 def test_migration_command_documentation_is_accurate() -> None:
@@ -132,4 +136,58 @@ def test_embedding_migration_upgrades_and_downgrades_index_schema(tmp_path: Path
     assert "indexed_files" in inspect(engine).get_table_names()
     assert "chunk_embeddings" not in inspect(engine).get_table_names()
     assert "indexed_chunks" not in inspect(engine).get_table_names()
+    engine.dispose()
+
+
+def test_patch_quality_migration_upgrades_and_downgrades_current_schema(tmp_path: Path) -> None:
+    database_url = f"sqlite:///{(tmp_path / 'patch-quality-migration.db').as_posix()}"
+    config = make_alembic_config(database_url)
+    command.upgrade(config, "20260909_0004")
+    engine = create_engine(database_url)
+
+    command.upgrade(config, "head")
+
+    inspector = inspect(engine)
+    assert "patch_qualities" in inspector.get_table_names()
+    assert {
+        "changed_file_count",
+        "total_changed_lines",
+        "max_patch_files",
+        "max_patch_changed_lines",
+        "warnings",
+        "hard_limit_violations",
+    }.issubset(_column_names(inspector, "patch_qualities"))
+    assert {
+        "allow_lockfile_changes",
+        "allow_dependency_file_changes",
+    }.issubset(_column_names(inspector, "benchmark_tasks"))
+
+    command.downgrade(config, "20260909_0004")
+
+    inspector = inspect(engine)
+    assert "patch_qualities" not in inspector.get_table_names()
+    assert "allow_lockfile_changes" not in _column_names(inspector, "benchmark_tasks")
+    engine.dispose()
+
+
+def test_run_failure_migration_upgrades_and_downgrades_current_schema(tmp_path: Path) -> None:
+    database_url = f"sqlite:///{(tmp_path / 'run-failure-migration.db').as_posix()}"
+    config = make_alembic_config(database_url)
+    command.upgrade(config, "20260911_0005")
+    engine = create_engine(database_url)
+
+    command.upgrade(config, "head")
+
+    inspector = inspect(engine)
+    assert "agent_run_failures" in inspector.get_table_names()
+    assert {
+        "agent_run_id",
+        "category",
+        "human_readable_summary",
+        "source_event_id",
+    }.issubset(_column_names(inspector, "agent_run_failures"))
+
+    command.downgrade(config, "20260911_0005")
+
+    assert "agent_run_failures" not in inspect(engine).get_table_names()
     engine.dispose()

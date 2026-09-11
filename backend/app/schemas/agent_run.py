@@ -5,6 +5,7 @@ from uuid import UUID
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 from app.core.run_statuses import VALID_RUN_STATUSES
+from app.schemas.failure import FailureCategory
 
 
 class AgentRunBase(BaseModel):
@@ -31,6 +32,11 @@ class AgentRunRead(AgentRunBase):
     started_at: datetime
     completed_at: datetime | None = None
     patch_review_status: str | None = None
+    repair_attempts_used: int = 0
+    final_patch_id: UUID | None = None
+    final_patch_passed_tests: bool | None = None
+    failure_summary: str | None = None
+    failure_category: FailureCategory | None = None
 
     model_config = ConfigDict(from_attributes=True)
 
@@ -69,6 +75,10 @@ class AgentRunConfig(BaseModel):
     include_issue_comments: bool = True
     enable_test_tool: bool = True
     run_mode: Literal["scripted", "tool_loop"] = "tool_loop"
+    max_repair_attempts: int = Field(default=0, ge=0, le=5, strict=True)
+    run_tests_after_patch: bool = True
+    stop_on_first_passing_patch: bool = True
+    include_test_failure_feedback: bool = True
 
     @field_validator("model_provider")
     @classmethod
@@ -118,6 +128,11 @@ class AgentRunDetailRead(BaseModel):
     metric_summary: AgentRunMetricSummary | None = None
     run_config: AgentRunConfig | None = None
     prompt_preview: AgentPromptPreview | None = None
+    repair_attempts_used: int = 0
+    final_patch_id: UUID | None = None
+    final_patch_passed_tests: bool | None = None
+    failure_summary: str | None = None
+    failure_category: FailureCategory | None = None
 
 
 class AgentRunStartRequest(AgentRunConfig):
@@ -149,3 +164,8 @@ class AgentRunStartResponse(BaseModel):
     error_message: str | None = None
     run_config: AgentRunConfig
     prompt_preview: AgentPromptPreview
+    repair_attempts_used: int = 0
+    final_patch_id: UUID | None = None
+    final_patch_passed_tests: bool | None = None
+    failure_summary: str | None = None
+    failure_category: FailureCategory | None = None

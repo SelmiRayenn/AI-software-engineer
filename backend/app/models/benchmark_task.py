@@ -3,7 +3,7 @@ from __future__ import annotations
 import uuid
 from typing import TYPE_CHECKING
 
-from sqlalchemy import ForeignKey, Integer, String, Text
+from sqlalchemy import Boolean, ForeignKey, Integer, String, Text, false
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from sqlalchemy.types import JSON, Uuid
 
@@ -40,6 +40,12 @@ class BenchmarkTask(UUIDPrimaryKeyMixin, CreatedAtMixin, Base):
     setup_commands: Mapped[list[str]] = mapped_column(JSON, default=list, nullable=False)
     test_commands: Mapped[list[str]] = mapped_column(JSON, default=list, nullable=False)
     notes: Mapped[str | None] = mapped_column(Text, nullable=True)
+    allow_lockfile_changes: Mapped[bool] = mapped_column(
+        Boolean, default=False, server_default=false(), nullable=False
+    )
+    allow_dependency_file_changes: Mapped[bool] = mapped_column(
+        Boolean, default=False, server_default=false(), nullable=False
+    )
     status: Mapped[str] = mapped_column(String(50), default="draft", index=True, nullable=False)
 
     repository: Mapped["Repository"] = relationship(back_populates="benchmark_tasks")

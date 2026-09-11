@@ -5,6 +5,7 @@ from uuid import UUID
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from app.schemas.agent_run import AgentRunStartRequest
+from app.schemas.failure import FailureCategory
 
 
 class ComparisonModel(BaseModel):
@@ -27,6 +28,10 @@ class ModelComparisonRequest(BaseModel):
     include_issue_comments: bool = True
     enable_test_tool: bool = True
     run_mode: Literal["scripted", "tool_loop"] = "tool_loop"
+    max_repair_attempts: int = Field(default=0, ge=0, le=5, strict=True)
+    run_tests_after_patch: bool = True
+    stop_on_first_passing_patch: bool = True
+    include_test_failure_feedback: bool = True
 
     model_config = ConfigDict(extra="forbid")
 
@@ -58,6 +63,11 @@ class ModelComparisonRun(BaseModel):
     estimated_cost: float | None = None
     execution_time_seconds: float | None = None
     failure_reason: str | None = None
+    repair_attempts_used: int = 0
+    final_patch_id: UUID | None = None
+    final_patch_passed_tests: bool | None = None
+    failure_summary: str | None = None
+    failure_category: FailureCategory | None = None
 
 
 class ComparisonWinner(BaseModel):

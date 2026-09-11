@@ -24,6 +24,14 @@ from app.core.test_phases import (
     TEST_PHASE_POST_PATCH,
     TEST_PHASE_SETUP,
 )
+from app.failures import FailureClassificationService
+from app.failures.categories import (
+    FAILURE_PATCH_APPLY_FAILED,
+    FAILURE_PATCH_QUALITY_BLOCKED,
+    FAILURE_POST_PATCH_TESTS_FAILED,
+    FAILURE_SETUP_FAILED,
+    FAILURE_TIMEOUT,
+)
 from app.models import AgentEvent, AgentRun, GeneratedPatch, TestResult
 from app.patches import PatchError, PatchService
 
@@ -109,12 +117,18 @@ class TestExecutionService:
         if not passed:
             self._mark_failed()
 
-        self._log_phase_completed(
+        event = self._log_phase_completed(
             phase=TEST_PHASE_SETUP,
             passed=passed,
             result_count=len(results),
             patch_status=None,
         )
+        if not passed:
+            self._classify_failure(
+                _test_failure_category(results, FAILURE_SETUP_FAILED),
+                "Setup command failed.",
+                event.id,
+            )
         return TestExecutionPhaseResult(
             agent_run_id=self._agent_run_id,
             phase=TEST_PHASE_SETUP,
@@ -135,11 +149,16 @@ class TestExecutionService:
             )
             if not _all_passed(setup_results):
                 self._mark_failed()
-                self._log_phase_completed(
+                event = self._log_phase_completed(
                     phase=TEST_PHASE_BASELINE,
                     passed=False,
                     result_count=len(setup_results),
                     patch_status=None,
+                )
+                self._classify_failure(
+                    _test_failure_category(setup_results, FAILURE_SETUP_FAILED),
+                    "Setup command failed.",
+                    event.id,
                 )
                 return TestExecutionPhaseResult(
                     agent_run_id=self._agent_run_id,
@@ -170,27 +189,56 @@ class TestExecutionService:
             error_message=None if passed else "Baseline test command failed.",
         )
 
-    def run_post_patch_tests(self) -> TestExecutionPhaseResult:
+    def run_post_patch_tests(
+        self,
+        *,
+        generated_patch_id: UUID | None = None,
+        attempt_number: int | None = None,
+        finalize_run: bool = True,
+    ) -> TestExecutionPhaseResult:
         self._ensure_execution_allowed()
         self._mark_running_if_needed()
-        patch_status = self._apply_generated_patch_if_present()
+        patch = (
+            self._db.get(GeneratedPatch, generated_patch_id)
+            if generated_patch_id
+            else self._agent_run.generated_patch
+        )
+        if generated_patch_id and (patch is None or patch.agent_run_id != self._agent_run_id):
+            raise TestExecutionSafetyError("Generated patch does not belong to this run.")
+        patch_status = self._apply_generated_patch_if_present(patch, finalize_run=finalize_run)
+        generated_patch_id = patch.id if patch else None
         test_results = self._run_configured_commands(
             phase=TEST_PHASE_POST_PATCH,
             commands=self._agent_run.benchmark_task.test_commands,
             allowed_commands=self._agent_run.benchmark_task.test_commands,
+            generated_patch_id=generated_patch_id,
+            attempt_number=attempt_number,
         )
         passed = _all_passed(test_results)
-        if passed:
-            self._mark_completed()
-        else:
-            self._mark_failed()
+        if finalize_run:
+            if patch:
+                for candidate in self._agent_run.generated_patches:
+                    candidate.is_selected = candidate.id == patch.id
+            self._agent_run.final_patch_passed_tests = passed if test_results else None
+            if passed:
+                self._mark_completed()
+            else:
+                self._mark_failed()
 
-        self._log_phase_completed(
+        event = self._log_phase_completed(
             phase=TEST_PHASE_POST_PATCH,
             passed=passed,
             result_count=len(test_results),
             patch_status=patch_status,
+            generated_patch_id=generated_patch_id,
+            attempt_number=attempt_number,
         )
+        if finalize_run and not passed:
+            self._classify_failure(
+                _test_failure_category(test_results, FAILURE_POST_PATCH_TESTS_FAILED),
+                "Post-patch test command failed.",
+                event.id,
+            )
         return TestExecutionPhaseResult(
             agent_run_id=self._agent_run_id,
             phase=TEST_PHASE_POST_PATCH,
@@ -214,14 +262,30 @@ class TestExecutionService:
         phase: str,
         commands: list[str],
         allowed_commands: list[str],
+        generated_patch_id: UUID | None = None,
+        attempt_number: int | None = None,
     ) -> list[TestResult]:
         results: list[TestResult] = []
         for command in commands:
             self._ensure_command_allowed(command, allowed_commands)
-            results.append(self._run_command(phase=phase, command=command))
+            results.append(
+                self._run_command(
+                    phase=phase,
+                    command=command,
+                    generated_patch_id=generated_patch_id,
+                    attempt_number=attempt_number,
+                )
+            )
         return results
 
-    def _run_command(self, *, phase: str, command: str) -> TestResult:
+    def _run_command(
+        self,
+        *,
+        phase: str,
+        command: str,
+        generated_patch_id: UUID | None = None,
+        attempt_number: int | None = None,
+    ) -> TestResult:
         started = time.perf_counter()
         timed_out = False
         try:
@@ -248,13 +312,17 @@ class TestExecutionService:
             stderr = str(exc)
 
         if timed_out:
-            timeout_message = f"Command exceeded timeout of {self._command_timeout_seconds} seconds."
+            timeout_message = (
+                f"Command exceeded timeout of {self._command_timeout_seconds} seconds."
+            )
             stderr = f"{stderr}\n{timeout_message}".strip()
 
         test_result = TestResult(
             agent_run_id=self._agent_run_id,
             phase=phase,
             command=command,
+            generated_patch_id=generated_patch_id,
+            attempt_number=attempt_number,
             passed=exit_code == 0 and not timed_out,
             exit_code=exit_code,
             stdout=self._limit_log(stdout),
@@ -266,10 +334,12 @@ class TestExecutionService:
         self._db.refresh(test_result)
         return test_result
 
-    def _apply_generated_patch_if_present(self) -> str:
-        generated_patch = self._db.scalar(
-            select(GeneratedPatch).where(GeneratedPatch.agent_run_id == self._agent_run_id)
-        )
+    def _apply_generated_patch_if_present(
+        self,
+        generated_patch: GeneratedPatch | None,
+        *,
+        finalize_run: bool,
+    ) -> str:
         if generated_patch is None:
             return "none"
         if not generated_patch.patch_text.strip():
@@ -282,8 +352,19 @@ class TestExecutionService:
                 workspace_path=self._workspace_path,
             ).ensure_patch_applied(generated_patch.patch_text)
         except PatchError as exc:
-            self._mark_failed()
-            raise TestExecutionError(f"Generated patch could not be applied: {exc}") from exc
+            if finalize_run:
+                self._mark_failed()
+                category = (
+                    FAILURE_PATCH_QUALITY_BLOCKED
+                    if "quality guardrail" in str(exc).lower()
+                    else FAILURE_PATCH_APPLY_FAILED
+                )
+                self._classify_failure(
+                    category,
+                    f"Generated patch could not be applied: {exc}",
+                )
+                raise TestExecutionError(f"Generated patch could not be applied: {exc}") from exc
+            raise
 
         if applied.already_applied:
             return "already_applied"
@@ -333,20 +414,38 @@ class TestExecutionService:
         passed: bool,
         result_count: int,
         patch_status: str | None,
-    ) -> None:
-        self._db.add(
-            AgentEvent(
-                agent_run_id=self._agent_run_id,
-                event_type="test_phase_completed",
-                payload_json={
-                    "phase": phase,
-                    "passed": passed,
-                    "result_count": result_count,
-                    "patch_status": patch_status,
-                },
-            )
+        generated_patch_id: UUID | None = None,
+        attempt_number: int | None = None,
+    ) -> AgentEvent:
+        event = AgentEvent(
+            agent_run_id=self._agent_run_id,
+            event_type="test_phase_completed",
+            payload_json={
+                "phase": phase,
+                "passed": passed,
+                "result_count": result_count,
+                "patch_status": patch_status,
+                "generated_patch_id": str(generated_patch_id) if generated_patch_id else None,
+                "attempt_number": attempt_number,
+            },
         )
+        self._db.add(event)
         self._db.commit()
+        self._db.refresh(event)
+        return event
+
+    def _classify_failure(
+        self,
+        category: str,
+        summary: str,
+        source_event_id: UUID | None = None,
+    ) -> None:
+        FailureClassificationService(self._db).classify(
+            agent_run_id=self._agent_run_id,
+            category=category,
+            summary=summary,
+            source_event_id=source_event_id,
+        )
 
     def _limit_log(self, value: str | None) -> str:
         if not value:
@@ -368,3 +467,7 @@ def _decode_timeout_output(value: str | bytes | None) -> str:
     if isinstance(value, bytes):
         return value.decode("utf-8", errors="replace")
     return value
+
+
+def _test_failure_category(results: list[TestResult], default: str) -> str:
+    return FAILURE_TIMEOUT if any(result.exit_code == 124 for result in results) else default
