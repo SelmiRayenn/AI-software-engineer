@@ -24,6 +24,7 @@ from app.schemas.evaluation_metric import EvaluationMetricCreate, EvaluationMetr
 from app.schemas.generated_patch import GeneratedPatchCreate, GeneratedPatchRead
 from app.schemas.github import (
     GitHubBenchmarkTaskHint,
+    GitHubHiddenTestCandidate,
     GitHubIssuePreview,
     GitHubIssuePreviewRequest,
     GitHubIssuePreviewResponse,
@@ -31,6 +32,7 @@ from app.schemas.github import (
     GitHubPullRequestPreviewRequest,
     GitHubPullRequestPreviewResponse,
     GitHubRepositoryPreview,
+    GitHubTrustedPullRequestPreviewResponse,
 )
 from app.schemas.gold_patch import GoldPatchCreate, GoldPatchRead
 from app.schemas.health import HealthResponse
@@ -78,6 +80,7 @@ __all__ = [
     "GeneratedPatchRead",
     "GeneratedPatchResponse",
     "GitHubBenchmarkTaskHint",
+    "GitHubHiddenTestCandidate",
     "GitHubIssuePreview",
     "GitHubIssuePreviewRequest",
     "GitHubIssuePreviewResponse",
@@ -85,6 +88,7 @@ __all__ = [
     "GitHubPullRequestPreviewRequest",
     "GitHubPullRequestPreviewResponse",
     "GitHubRepositoryPreview",
+    "GitHubTrustedPullRequestPreviewResponse",
     "GoldPatchCreate",
     "GoldPatchRead",
     "HealthResponse",

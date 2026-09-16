@@ -6,7 +6,7 @@ from app import crud
 from app.benchmark_tasks.gold_solution import GoldSolutionStorage
 from app.core.task_statuses import TASK_STATUS_READY
 from app.github import GitHubClientError, GitHubService, parse_github_repo_url
-from app.models import BenchmarkTask, GoldPatch, Repository
+from app.models import BenchmarkTask, GoldPatch, HiddenEvalTest, Repository
 from app.schemas.benchmark_task import BenchmarkTaskFromGitHubRequest
 from app.schemas.repository import RepositoryCreate
 
@@ -117,6 +117,24 @@ class GitHubBenchmarkTaskCreator:
             patch_text=patch_text,
             test_files=test_files,
         )
+        if request.create_hidden_tests_from_pr_tests:
+            candidates = self._github_service.hidden_test_candidates(
+                repo_ref,
+                pull_request,
+                request.test_commands,
+            )
+            for candidate in candidates:
+                if candidate.content is None or not candidate.suggested_commands:
+                    continue
+                self._db.add(
+                    HiddenEvalTest(
+                        benchmark_task_id=task.id,
+                        name=f"PR #{request.pull_request_number}: {candidate.path}"[:255],
+                        commands=candidate.suggested_commands,
+                        files_payload={candidate.path: candidate.content},
+                        enabled=True,
+                    )
+                )
         self._db.commit()
         self._db.refresh(repository)
         self._db.refresh(task)

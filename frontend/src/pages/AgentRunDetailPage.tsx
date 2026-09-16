@@ -409,8 +409,41 @@ export function AgentRunDetailPage({ runId, onNavigate }: AgentRunDetailPageProp
         {state.run.metric_summary ? (
           <div className="metric-grid">
             <MetricItem
-              label="Tests Passed"
-              value={state.run.metric_summary.tests_passed ? "Yes" : "No"}
+              detail={issueConfidenceDetail(state.run.metric_summary.hidden_tests_run_count)}
+              label="Issue Resolved"
+              tone={state.run.metric_summary.issue_resolved ? "positive" : "negative"}
+              value={state.run.metric_summary.issue_resolved ? "Yes" : "No"}
+            />
+            <MetricItem
+              label="Issue Score"
+              value={formatPercent(state.run.metric_summary.issue_specific_score)}
+            />
+            <MetricItem
+              detail="Before patch"
+              label="Baseline Tests"
+              value={testStatus(state.run.metric_summary.baseline_tests_passed)}
+            />
+            <MetricItem
+              detail="After patch"
+              label="Visible Tests"
+              value={testStatus(state.run.metric_summary.post_patch_tests_passed)}
+            />
+            <MetricItem
+              detail={
+                state.run.metric_summary.hidden_tests_run_count > 0
+                  ? `${state.run.metric_summary.hidden_tests_run_count} commands run`
+                  : "Lower confidence without hidden evaluation"
+              }
+              label="Hidden Eval"
+              value={hiddenTestStatus(
+                state.run.metric_summary.hidden_tests_passed,
+                state.run.metric_summary.hidden_tests_run_count,
+              )}
+            />
+            <MetricItem
+              label="Regression"
+              tone={state.run.metric_summary.regression_detected ? "negative" : "neutral"}
+              value={state.run.metric_summary.regression_detected ? "Detected" : "None"}
             />
             <MetricItem
               label="File Localization"
@@ -465,13 +498,41 @@ function DiffViewer({ patchText }: { patchText: string }) {
   );
 }
 
-function MetricItem({ label, value }: { label: string; value: string }) {
+function MetricItem({
+  label,
+  value,
+  detail,
+  tone = "neutral",
+}: {
+  label: string;
+  value: string;
+  detail?: string;
+  tone?: "neutral" | "positive" | "negative";
+}) {
   return (
-    <div className="metric-item">
+    <div className="metric-item" data-tone={tone}>
       <span>{label}</span>
       <strong>{value}</strong>
+      {detail ? <small>{detail}</small> : null}
     </div>
   );
+}
+
+function testStatus(passed: boolean): string {
+  return passed ? "Passed" : "Failed";
+}
+
+function hiddenTestStatus(passed: boolean | null, runCount: number): string {
+  if (runCount === 0) {
+    return "Not run";
+  }
+  return passed ? "Passed" : "Failed";
+}
+
+function issueConfidenceDetail(hiddenRunCount: number): string {
+  return hiddenRunCount > 0
+    ? "High confidence: hidden evaluation ran"
+    : "Lower confidence: no hidden evaluation";
 }
 
 function currentReviewStatus(state: DetailState): string {

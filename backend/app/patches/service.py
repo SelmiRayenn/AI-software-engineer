@@ -466,6 +466,7 @@ class PatchService:
     def _reject_protected_gold_path(self, relative_path: PurePosixPath) -> None:
         parts = [part.lower() for part in relative_path.parts if part not in {"", "."}]
         protected_names = {
+            ".benchmark-hidden-eval",
             ".gold",
             ".gold_patch",
             ".gold_solution",

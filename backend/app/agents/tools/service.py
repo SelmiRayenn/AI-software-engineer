@@ -455,6 +455,7 @@ class AgentWorkspaceTools:
             return
 
         protected_names = {
+            ".benchmark-hidden-eval",
             ".gold",
             ".gold_patch",
             ".gold_solution",

@@ -1,5 +1,5 @@
 from datetime import datetime
-from typing import Any
+from typing import Any, Literal
 
 from pydantic import BaseModel, Field
 
@@ -57,6 +57,8 @@ class GitHubIssueCommentPreview(BaseModel):
 class GitHubPullRequestFilePreview(BaseModel):
     filename: str
     status: str
+    file_kind: Literal["source", "test", "docs", "config", "other"]
+    previous_filename: str | None = None
     additions: int = 0
     deletions: int = 0
     changes: int = 0
@@ -116,6 +118,21 @@ class GitHubPullRequestPreviewResponse(BaseModel):
     repository: GitHubRepositoryPreview
     pull_request: GitHubPullRequestPreview
     benchmark_task_hint: GitHubBenchmarkTaskHint
+
+
+class GitHubHiddenTestCandidate(BaseModel):
+    path: str
+    status: str
+    patch: str | None = None
+    content: str | None = None
+    content_available: bool
+    suggested_commands: list[str] = Field(default_factory=list)
+    unavailable_reason: str | None = None
+
+
+class GitHubTrustedPullRequestPreviewResponse(GitHubPullRequestPreviewResponse):
+    detected_test_files: list[str] = Field(default_factory=list)
+    hidden_test_candidates: list[GitHubHiddenTestCandidate] = Field(default_factory=list)
 
 
 class GitHubErrorResponse(BaseModel):

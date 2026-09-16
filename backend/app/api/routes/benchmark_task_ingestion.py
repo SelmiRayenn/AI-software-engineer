@@ -1,7 +1,7 @@
 from typing import Annotated
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, Header, HTTPException
 from sqlalchemy.orm import Session
 
 from app import crud
@@ -14,6 +14,7 @@ from app.benchmark_tasks import (
     to_agent_visible_task,
     validate_benchmark_task,
 )
+from app.core.trusted import TRUSTED_OPERATOR_HEADER, verify_trusted_operator_token
 from app.db.session import get_db
 from app.github import GitHubClientError, GitHubService
 from app.schemas.benchmark_task import (
@@ -41,7 +42,10 @@ def create_benchmark_task_from_github(
     request: BenchmarkTaskFromGitHubRequest,
     db: DbSession,
     github_service: GitHubServiceDep,
+    operator_token: Annotated[str | None, Header(alias=TRUSTED_OPERATOR_HEADER)] = None,
 ) -> AgentVisibleBenchmarkTaskRead:
+    if request.create_hidden_tests_from_pr_tests:
+        verify_trusted_operator_token(operator_token)
     creator = GitHubBenchmarkTaskCreator(db=db, github_service=github_service)
     try:
         result = creator.create_from_github(request)

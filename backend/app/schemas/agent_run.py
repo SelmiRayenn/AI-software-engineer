@@ -58,6 +58,14 @@ class AgentRunMetricSummary(BaseModel):
     file_localization_score: float | None = None
     patch_applied: bool
     tests_passed: bool
+    baseline_tests_passed: bool
+    post_patch_tests_passed: bool
+    hidden_tests_passed: bool | None = None
+    hidden_tests_run_count: int = 0
+    hidden_tests_failed_count: int = 0
+    issue_resolved: bool
+    regression_detected: bool
+    issue_specific_score: float
     modified_files_count: int
     unrelated_files_count: int
     tokens_used: int | None = None
@@ -79,6 +87,7 @@ class AgentRunConfig(BaseModel):
     run_tests_after_patch: bool = True
     stop_on_first_passing_patch: bool = True
     include_test_failure_feedback: bool = True
+    run_hidden_tests: bool = False
 
     @field_validator("model_provider")
     @classmethod

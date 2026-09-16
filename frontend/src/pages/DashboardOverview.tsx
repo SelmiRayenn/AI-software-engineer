@@ -64,7 +64,8 @@ export function DashboardOverview() {
       metrics.length === 0
         ? "N/A"
         : `${Math.round(
-            (metrics.filter((metric) => metric.tests_passed).length / metrics.length) * 100,
+            (metrics.filter((metric) => metric.post_patch_tests_passed).length / metrics.length) *
+              100,
           )}%`;
 
     return {

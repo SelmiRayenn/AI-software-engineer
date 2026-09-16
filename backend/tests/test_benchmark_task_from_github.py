@@ -1,3 +1,4 @@
+import base64
 from collections.abc import Generator
 
 import httpx
@@ -8,11 +9,12 @@ from sqlalchemy.orm import Session, sessionmaker
 from sqlalchemy.pool import StaticPool
 
 from app.api.routes.benchmark_task_ingestion import get_github_service
+from app.core.config import settings
 from app.db.base import Base
 from app.db.session import get_db
 from app.github import GitHubService
 from app.main import app
-from app.models import BenchmarkTask, GoldPatch, Repository
+from app.models import BenchmarkTask, GoldPatch, HiddenEvalTest, Repository
 
 engine = create_engine(
     "sqlite+pysqlite:///:memory:",
@@ -109,6 +111,54 @@ def test_repository_is_reused_instead_of_duplicated(client: TestClient) -> None:
     assert task_count == 2
 
 
+def test_hidden_tests_are_created_only_when_explicitly_enabled(
+    client: TestClient,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    without_flag = client.post("/benchmark-tasks/from-github", json=request_payload())
+    assert without_flag.status_code == 200
+    with TestingSessionLocal() as db:
+        assert list(db.scalars(select(HiddenEvalTest))) == []
+
+    monkeypatch.setattr(settings, "trusted_operator_token", "operator-token")
+    response = client.post(
+        "/benchmark-tasks/from-github",
+        headers={"X-Operator-Token": "operator-token"},
+        json={
+            **request_payload(),
+            "issue_number": 43,
+            "pull_request_number": 44,
+            "create_hidden_tests_from_pr_tests": True,
+        },
+    )
+
+    assert response.status_code == 200
+    assert "hidden" not in response.text.lower()
+    with TestingSessionLocal() as db:
+        hidden_test = db.scalars(select(HiddenEvalTest)).one()
+        assert hidden_test.name == "PR #44: tests/test_core.py"
+        assert hidden_test.commands == [
+            "python -m pytest -q .benchmark-hidden-eval/tests/test_core.py"
+        ]
+        assert hidden_test.files_payload == {
+            "tests/test_core.py": "def test_divide_by_zero():\n    assert True\n"
+        }
+
+    normal_task_response = client.get("/api/v1/benchmark-tasks")
+    assert normal_task_response.status_code == 200
+    assert "test_divide_by_zero" not in normal_task_response.text
+    assert "hidden_eval" not in normal_task_response.text
+
+
+def test_hidden_test_creation_flag_requires_operator_access(client: TestClient) -> None:
+    response = client.post(
+        "/benchmark-tasks/from-github",
+        json={**request_payload(), "create_hidden_tests_from_pr_tests": True},
+    )
+
+    assert response.status_code in {403, 503}
+
+
 def mock_github_service() -> GitHubService:
     return GitHubService(
         api_base_url="https://api.github.test",
@@ -147,6 +197,12 @@ def handler(request: httpx.Request) -> httpx.Response:
         "/repos/example/calculator/pulls/44/commits",
     }:
         return json_response(commits_payload())
+    if path == "/repos/example/calculator/contents/tests/test_core.py":
+        assert request.url.params["ref"] == "head-sha"
+        content = base64.b64encode(
+            b"def test_divide_by_zero():\n    assert True\n"
+        ).decode("ascii")
+        return json_response({"type": "file", "encoding": "base64", "content": content})
 
     return json_response({"message": "not found"}, status_code=404)
 

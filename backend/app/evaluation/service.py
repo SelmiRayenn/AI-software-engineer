@@ -6,7 +6,11 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.core.run_statuses import RUN_STATUS_COMPLETED, RUN_STATUS_FAILED
-from app.core.test_phases import TEST_PHASE_POST_PATCH
+from app.core.test_phases import (
+    TEST_PHASE_BASELINE,
+    TEST_PHASE_HIDDEN_EVAL,
+    TEST_PHASE_POST_PATCH,
+)
 from app.models import AgentEvent, AgentRun, EvaluationMetric, GeneratedPatch, GoldPatch, TestResult
 
 
@@ -43,19 +47,45 @@ class EvaluationService:
         gold_patch = self._gold_patch()
         generated_patch = self._generated_patch()
         events = self._events()
+        baseline_results = self._baseline_results()
         post_patch_results = self._post_patch_results(generated_patch)
+        hidden_eval_results = self._hidden_eval_results(generated_patch)
         tokens_used, estimated_cost = self._tokens_and_cost(events)
+        baseline_tests_passed = _all_results_passed(baseline_results)
+        post_patch_tests_passed = _all_results_passed(post_patch_results) and (
+            not self._agent_run.final_patch_id
+            or self._agent_run.final_patch_passed_tests is not False
+        )
+        hidden_tests_passed = self._hidden_tests_passed(
+            hidden_eval_results,
+            generated_patch,
+            events,
+        )
+        hidden_tests_ran = bool(hidden_eval_results)
+        issue_resolved = post_patch_tests_passed and (
+            not hidden_tests_ran or hidden_tests_passed is True
+        )
+        issue_specific_score = _issue_specific_score(
+            post_patch_tests_passed=post_patch_tests_passed,
+            hidden_tests_passed=hidden_tests_passed,
+            hidden_tests_ran=hidden_tests_ran,
+        )
 
         values = {
             "agent_run_id": self._agent_run_id,
             "file_localization_score": self._file_localization_score(events, gold_patch),
             "patch_applied": self._patch_applied(generated_patch, events),
-            "tests_passed": bool(post_patch_results)
-            and all(result.passed for result in post_patch_results)
-            and (
-                not self._agent_run.final_patch_id
-                or self._agent_run.final_patch_passed_tests is not False
+            "tests_passed": post_patch_tests_passed,
+            "baseline_tests_passed": baseline_tests_passed,
+            "post_patch_tests_passed": post_patch_tests_passed,
+            "hidden_tests_passed": hidden_tests_passed,
+            "hidden_tests_run_count": len(hidden_eval_results),
+            "hidden_tests_failed_count": sum(
+                1 for result in hidden_eval_results if not result.passed
             ),
+            "issue_resolved": issue_resolved,
+            "regression_detected": baseline_tests_passed and not post_patch_tests_passed,
+            "issue_specific_score": issue_specific_score,
             "modified_files_count": len(_normalized_files(generated_patch.changed_files))
             if generated_patch is not None
             else 0,
@@ -101,12 +131,42 @@ class EvaluationService:
         )
 
     def _post_patch_results(self, patch: GeneratedPatch | None) -> list[TestResult]:
+        return self._phase_results(TEST_PHASE_POST_PATCH, patch)
+
+    def _baseline_results(self) -> list[TestResult]:
+        return self._phase_results(TEST_PHASE_BASELINE, None)
+
+    def _hidden_eval_results(self, patch: GeneratedPatch | None) -> list[TestResult]:
+        if patch is None or not patch.is_selected:
+            return []
+        return self._phase_results(TEST_PHASE_HIDDEN_EVAL, patch)
+
+    def _hidden_tests_passed(
+        self,
+        results: list[TestResult],
+        patch: GeneratedPatch | None,
+        events: list[AgentEvent],
+    ) -> bool | None:
+        if not results:
+            return None
+        if patch is None:
+            return False
+        phase_completed = any(
+            event.event_type == "test_phase_completed"
+            and event.payload_json.get("phase") == TEST_PHASE_HIDDEN_EVAL
+            and event.payload_json.get("generated_patch_id") == str(patch.id)
+            and event.payload_json.get("result_count") == len(results)
+            for event in events
+        )
+        return all(result.passed for result in results) and phase_completed
+
+    def _phase_results(self, phase: str, patch: GeneratedPatch | None) -> list[TestResult]:
         results = list(
             self._db.scalars(
                 select(TestResult)
                 .where(
                     TestResult.agent_run_id == self._agent_run_id,
-                    TestResult.phase == TEST_PHASE_POST_PATCH,
+                    TestResult.phase == phase,
                 )
                 .order_by(TestResult.created_at.asc())
             ).all()
@@ -219,6 +279,14 @@ class EvaluationService:
                     "file_localization_score": metric.file_localization_score,
                     "patch_applied": metric.patch_applied,
                     "tests_passed": metric.tests_passed,
+                    "baseline_tests_passed": metric.baseline_tests_passed,
+                    "post_patch_tests_passed": metric.post_patch_tests_passed,
+                    "hidden_tests_passed": metric.hidden_tests_passed,
+                    "hidden_tests_run_count": metric.hidden_tests_run_count,
+                    "hidden_tests_failed_count": metric.hidden_tests_failed_count,
+                    "issue_resolved": metric.issue_resolved,
+                    "regression_detected": metric.regression_detected,
+                    "issue_specific_score": metric.issue_specific_score,
                     "modified_files_count": metric.modified_files_count,
                     "unrelated_files_count": metric.unrelated_files_count,
                     "tokens_used": metric.tokens_used,
@@ -232,6 +300,25 @@ class EvaluationService:
 
 def _normalized_files(files: list[str] | None) -> set[str]:
     return {_normalize_file_path(file_path) for file_path in files or [] if file_path}
+
+
+def _all_results_passed(results: list[TestResult]) -> bool:
+    return bool(results) and all(result.passed for result in results)
+
+
+def _issue_specific_score(
+    *,
+    post_patch_tests_passed: bool,
+    hidden_tests_passed: bool | None,
+    hidden_tests_ran: bool,
+) -> float:
+    if post_patch_tests_passed and hidden_tests_passed is True:
+        return 1.0
+    if post_patch_tests_passed and not hidden_tests_ran:
+        return 0.75
+    if not post_patch_tests_passed and hidden_tests_passed is True:
+        return 0.5
+    return 0.0
 
 
 def _normalize_file_path(file_path: str) -> str:

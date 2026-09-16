@@ -55,6 +55,7 @@ class BenchmarkTaskFromGitHubRequest(BaseModel):
     notes: str | None = None
     allow_lockfile_changes: bool = False
     allow_dependency_file_changes: bool = False
+    create_hidden_tests_from_pr_tests: bool = False
 
     @field_validator("setup_commands", "test_commands")
     @classmethod

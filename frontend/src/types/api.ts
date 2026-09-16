@@ -72,6 +72,14 @@ export interface AgentRunMetricSummary {
   file_localization_score: number | null;
   patch_applied: boolean;
   tests_passed: boolean;
+  baseline_tests_passed: boolean;
+  post_patch_tests_passed: boolean;
+  hidden_tests_passed: boolean | null;
+  hidden_tests_run_count: number;
+  hidden_tests_failed_count: number;
+  issue_resolved: boolean;
+  regression_detected: boolean;
+  issue_specific_score: number;
   modified_files_count: number;
   unrelated_files_count: number;
   tokens_used: number | null;
@@ -108,6 +116,7 @@ export interface AgentRunConfig {
   include_issue_comments: boolean;
   enable_test_tool: boolean;
   run_mode: "scripted" | "tool_loop";
+  run_hidden_tests: boolean;
 }
 
 export interface AgentPromptPreview {
@@ -154,6 +163,14 @@ export interface EvaluationMetric {
   file_localization_score: number | null;
   patch_applied: boolean;
   tests_passed: boolean;
+  baseline_tests_passed: boolean;
+  post_patch_tests_passed: boolean;
+  hidden_tests_passed: boolean | null;
+  hidden_tests_run_count: number;
+  hidden_tests_failed_count: number;
+  issue_resolved: boolean;
+  regression_detected: boolean;
+  issue_specific_score: number;
   modified_files_count: number;
   unrelated_files_count: number;
   tokens_used: number | null;

@@ -64,6 +64,51 @@ The response includes:
 - Pull request commits.
 - A `benchmark_task_hint` with base commit, fix commit, linked PR URL, changed files, and detected test files.
 
+Each changed PR file is classified as `source`, `test`, `docs`, `config`, or `other`.
+Test detection recognizes conventional `test`/`tests`/`spec` directories, Python
+`test_*.py` and `*_test.py` files, JavaScript/TypeScript `.test.*` and `.spec.*` files,
+and several common framework naming patterns. Detected paths are persisted in
+`GoldPatch.test_files` when a historical task is created.
+
+## Trusted Hidden-Test Candidate Preview
+
+The normal preview does not fetch or return full hidden-test candidate contents. Operators can
+inspect candidates through the trusted endpoint:
+
+```powershell
+Invoke-RestMethod `
+  -Method Post `
+  -Uri "http://localhost:8000/github/preview-pr/trusted" `
+  -Headers @{ "X-Operator-Token" = $env:TRUSTED_OPERATOR_TOKEN } `
+  -ContentType "application/json" `
+  -Body $body
+```
+
+The response adds `detected_test_files` and `hidden_test_candidates`. Candidate UTF-8 content is
+fetched from the PR head commit where GitHub can provide it. Content is capped at 250,000 bytes;
+removed, binary, non-UTF-8, and unavailable files are reported without content.
+
+## Create Hidden Tests From A PR
+
+`POST /benchmark-tasks/from-github` accepts `create_hidden_tests_from_pr_tests`, which defaults to
+`false`. Setting it to `true` requires the trusted operator header. Runnable candidates are stored
+as enabled `HiddenEvalTest` suites; all detected paths remain recorded in `GoldPatch.test_files`.
+
+```json
+{
+  "repository_url": "https://github.com/example/project",
+  "issue_number": 12,
+  "pull_request_number": 34,
+  "base_commit": "0123456789abcdef0123456789abcdef01234567",
+  "setup_commands": [],
+  "test_commands": ["python -m pytest -q"],
+  "create_hidden_tests_from_pr_tests": true
+}
+```
+
+Generated files are staged only in the private hidden-evaluation copy. Task responses, normal
+task reads, run prompts, and prompt previews do not expose candidate contents or hidden commands.
+
 ## Linked Pull Request Detection
 
 Issue previews detect linked pull requests in two ways:
@@ -79,3 +124,5 @@ This is best effort. Some older or unusual GitHub workflows may not expose a lin
 - Private repositories are not supported yet.
 - The preview endpoints do not create database records.
 - The preview endpoints do not clone repositories or run tests.
+- Hidden-test command inference is conservative. Unsupported frameworks remain trusted candidates
+  and can be configured through the hidden-test management API.

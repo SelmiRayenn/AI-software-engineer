@@ -13,6 +13,7 @@ from app.models.mixins import CreatedAtMixin, UUIDPrimaryKeyMixin
 if TYPE_CHECKING:
     from app.models.agent_run import AgentRun
     from app.models.gold_patch import GoldPatch
+    from app.models.hidden_eval_test import HiddenEvalTest
     from app.models.repository import Repository
 
 
@@ -57,4 +58,9 @@ class BenchmarkTask(UUIDPrimaryKeyMixin, CreatedAtMixin, Base):
     agent_runs: Mapped[list["AgentRun"]] = relationship(
         back_populates="benchmark_task",
         cascade="all, delete-orphan",
+    )
+    hidden_eval_tests: Mapped[list["HiddenEvalTest"]] = relationship(
+        back_populates="benchmark_task",
+        cascade="all, delete-orphan",
+        order_by="HiddenEvalTest.created_at",
     )

@@ -1,7 +1,7 @@
 from typing import Annotated
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
 
 from app.agents.orchestrator import (
@@ -10,6 +10,7 @@ from app.agents.orchestrator import (
     BenchmarkTaskNotReadyError,
     GitSandboxWorkspacePreparer,
 )
+from app.core.trusted import require_trusted_operator
 from app.db.session import get_db
 from app.model_providers import ModelProviderConfigError, ModelProviderFactory
 from app.schemas.agent_run import AgentRunStartRequest, AgentRunStartResponse
@@ -28,6 +29,7 @@ def get_model_provider_factory() -> ModelProviderFactory:
 
 WorkspacePreparerDep = Annotated[GitSandboxWorkspacePreparer, Depends(get_workspace_preparer)]
 ModelProviderFactoryDep = Annotated[ModelProviderFactory, Depends(get_model_provider_factory)]
+TrustedOperator = Annotated[None, Depends(require_trusted_operator)]
 
 
 @router.post("/{benchmark_task_id}/start", response_model=AgentRunStartResponse)
@@ -37,6 +39,33 @@ def start_agent_run(
     db: DbSession,
     workspace_preparer: WorkspacePreparerDep,
     provider_factory: ModelProviderFactoryDep,
+) -> AgentRunStartResponse:
+    if request.run_hidden_tests:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Hidden evaluation requires the trusted operator start endpoint.",
+        )
+    return _start_run(benchmark_task_id, request, db, workspace_preparer, provider_factory)
+
+
+@router.post("/{benchmark_task_id}/start-trusted", response_model=AgentRunStartResponse)
+def start_agent_run_trusted(
+    benchmark_task_id: UUID,
+    request: AgentRunStartRequest,
+    db: DbSession,
+    workspace_preparer: WorkspacePreparerDep,
+    provider_factory: ModelProviderFactoryDep,
+    _: TrustedOperator,
+) -> AgentRunStartResponse:
+    return _start_run(benchmark_task_id, request, db, workspace_preparer, provider_factory)
+
+
+def _start_run(
+    benchmark_task_id: UUID,
+    request: AgentRunStartRequest,
+    db: Session,
+    workspace_preparer: GitSandboxWorkspacePreparer,
+    provider_factory: ModelProviderFactory,
 ) -> AgentRunStartResponse:
     orchestrator = AgentRunOrchestrator(
         db=db,

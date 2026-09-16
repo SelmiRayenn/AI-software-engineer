@@ -106,6 +106,11 @@ def test_metrics_included_when_present(client: TestClient, db: Session) -> None:
     assert response.status_code == 200
     metrics = response.json()["metric_summary"]
     assert metrics["tests_passed"] is True
+    assert metrics["baseline_tests_passed"] is True
+    assert metrics["post_patch_tests_passed"] is True
+    assert metrics["issue_resolved"] is True
+    assert metrics["regression_detected"] is False
+    assert metrics["issue_specific_score"] == 0.75
     assert metrics["patch_applied"] is True
     assert metrics["file_localization_score"] == 0.75
     assert metrics["modified_files_count"] == 1
@@ -205,6 +210,11 @@ def create_run(
                 file_localization_score=0.75,
                 patch_applied=True,
                 tests_passed=True,
+                baseline_tests_passed=True,
+                post_patch_tests_passed=True,
+                issue_resolved=True,
+                regression_detected=False,
+                issue_specific_score=0.75,
                 modified_files_count=1,
                 unrelated_files_count=0,
                 tokens_used=123,

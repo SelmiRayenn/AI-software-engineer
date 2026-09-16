@@ -118,6 +118,7 @@ Initial API surfaces:
 - `POST /agent-runs/{benchmark_task_id}/start`
 - `GET /agent-runs/{run_id}`
 - `GET /agent-runs/{run_id}/failure`
+- Trusted hidden evaluation: [setup, API and visibility](docs/hidden-evaluation-tests.md)
 - `GET /agent-runs/{run_id}/diff`
 - `GET /agent-runs/{run_id}/patch`
 - `POST /agent-runs/{run_id}/patch/apply`

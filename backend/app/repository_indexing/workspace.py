@@ -41,7 +41,11 @@ def protected_path(path: PurePosixPath) -> bool:
     for part in path.parts:
         name = part.lower()
         stem = name.lstrip(".").replace("-", "_").split(".")[0]
-        if stem in GOLD_NAMES or name in {".benchmark", WORKSPACE_METADATA_FILENAME}:
+        if stem in GOLD_NAMES or name in {
+            ".benchmark",
+            ".benchmark-hidden-eval",
+            WORKSPACE_METADATA_FILENAME,
+        }:
             return True
         if name == ".env" or name.startswith(".env."):
             return True

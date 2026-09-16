@@ -35,6 +35,7 @@ from app.models import (
     EvaluationMetric,
     GeneratedPatch,
     GoldPatch,
+    HiddenEvalTest,
     Repository,
     RepositoryIndex,
 )
@@ -158,6 +159,53 @@ def test_starting_run_on_ready_task_completes_noop_patch(
             "command_timeout_seconds": 15,
         }
     ]
+
+
+def test_hidden_evaluation_requires_trusted_start_and_runs_after_selected_patch(
+    client: TestClient,
+    workspace_preparer: FakeWorkspacePreparer,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    task_id = create_task(status="ready")
+    hidden_marker = "HIDDEN_EVAL_MARKER"
+    with TestingSessionLocal() as db:
+        db.add(
+            HiddenEvalTest(
+                benchmark_task_id=UUID(task_id),
+                name="hidden boundary",
+                commands=[python_command("print('hidden evaluation ran')")],
+                files_payload={"private.txt": hidden_marker},
+            )
+        )
+        db.commit()
+
+    public_response = client.post(
+        f"/agent-runs/{task_id}/start",
+        json={"model_provider": "mock", "run_hidden_tests": True},
+    )
+    assert public_response.status_code == 403
+
+    monkeypatch.setattr(settings, "trusted_operator_token", "operator-token")
+    trusted_response = client.post(
+        f"/agent-runs/{task_id}/start-trusted",
+        headers={"X-Operator-Token": "operator-token"},
+        json={"model_provider": "mock", "run_hidden_tests": True},
+    )
+
+    assert trusted_response.status_code == 200, trusted_response.text
+    assert hidden_marker not in trusted_response.text
+    run_id = UUID(trusted_response.json()["id"])
+    with TestingSessionLocal() as db:
+        results = list(db.scalars(select(ResultRecord).where(ResultRecord.agent_run_id == run_id)))
+        metric = db.get(EvaluationMetric, db.get(AgentRun, run_id).evaluation_metric.id)
+    assert any(result.phase == "hidden_eval" and result.passed for result in results)
+    assert metric.hidden_tests_passed is True
+    assert metric.hidden_tests_run_count == 1
+    assert metric.hidden_tests_failed_count == 0
+    assert all(
+        item["phase"] != "hidden_eval" for item in client.get(f"/agent-runs/{run_id}/tests").json()
+    )
+    assert not (workspace_preparer.workspace / ".benchmark-hidden-eval").exists()
 
 
 def test_start_rejects_draft_task(client: TestClient) -> None:
@@ -478,7 +526,7 @@ def test_run_configuration_and_prompt_preview_are_stored_and_inspectable(
 
     assert response.status_code == 200
     payload = response.json()
-    assert payload["run_config"] == request_payload
+    assert payload["run_config"] == {**request_payload, "run_hidden_tests": False}
     assert payload["prompt_preview"]["issue_context_prompt"].startswith("Fix this benchmark issue.")
     assert "- run_tests" not in payload["prompt_preview"]["tool_use_instructions"]
 
@@ -491,12 +539,15 @@ def test_run_configuration_and_prompt_preview_are_stored_and_inspectable(
             )
         )
         assert config_event is not None
-        assert config_event.payload_json["config"] == request_payload
+        assert config_event.payload_json["config"] == {
+            **request_payload,
+            "run_hidden_tests": False,
+        }
 
     detail_response = client.get(f"/agent-runs/{run_id}")
     assert detail_response.status_code == 200
     detail = detail_response.json()
-    assert detail["run_config"] == request_payload
+    assert detail["run_config"] == {**request_payload, "run_hidden_tests": False}
     assert detail["prompt_preview"] == payload["prompt_preview"]
 
 

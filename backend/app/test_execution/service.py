@@ -32,8 +32,9 @@ from app.failures.categories import (
     FAILURE_SETUP_FAILED,
     FAILURE_TIMEOUT,
 )
-from app.models import AgentEvent, AgentRun, GeneratedPatch, TestResult
+from app.models import AgentEvent, AgentRun, GeneratedPatch, HiddenEvalTest, TestResult
 from app.patches import PatchError, PatchService
+from app.test_execution.hidden_workspace import hidden_workspace
 
 TEST_EXECUTION_ALLOWED_STATUSES = {RUN_STATUS_QUEUED, RUN_STATUS_RUNNING}
 
@@ -100,7 +101,10 @@ class TestExecutionService:
     def list_results(self) -> list[TestResult]:
         statement = (
             select(TestResult)
-            .where(TestResult.agent_run_id == self._agent_run_id)
+            .where(
+                TestResult.agent_run_id == self._agent_run_id,
+                TestResult.phase != TEST_PHASE_HIDDEN_EVAL,
+            )
             .order_by(TestResult.created_at.asc())
         )
         return list(self._db.scalars(statement).all())
@@ -248,9 +252,84 @@ class TestExecutionService:
             error_message=None if passed else "Post-patch test command failed.",
         )
 
+    def run_hidden_evaluation(
+        self,
+        *,
+        generated_patch_id: UUID | None = None,
+        run_hidden_tests: bool = False,
+    ) -> TestExecutionPhaseResult:
+        """Backend-only evaluation, after the model loop has stopped and selected a patch."""
+        self._ensure_execution_allowed()
+        if not run_hidden_tests:
+            raise TestExecutionSafetyError("Hidden evaluation requires explicit backend opt-in.")
+        hidden_tests = self._enabled_hidden_tests()
+        patch = (
+            self._db.get(GeneratedPatch, generated_patch_id)
+            if generated_patch_id
+            else self._agent_run.generated_patch
+        )
+        if patch is None or patch.agent_run_id != self._agent_run_id or not patch.is_selected:
+            raise TestExecutionSafetyError("Hidden evaluation requires this run's selected patch.")
+        results: list[TestResult] = []
+        try:
+            if (
+                hidden_tests
+                and PatchService(
+                    db=self._db,
+                    agent_run_id=self._agent_run_id,
+                    workspace_path=self._workspace_path,
+                )
+                .get_current_workspace_diff()
+                .patch_text
+                != patch.patch_text
+            ):
+                raise TestExecutionSafetyError("Workspace does not match the selected patch.")
+            for hidden_test in hidden_tests:
+                # Validate direct database/backend writes as strictly as trusted HTTP requests.
+                from app.schemas.hidden_eval_test import HiddenEvalTestCreate
+
+                definition = HiddenEvalTestCreate(
+                    name=hidden_test.name,
+                    commands=hidden_test.commands,
+                    files_payload=hidden_test.files_payload,
+                    enabled=hidden_test.enabled,
+                )
+                with hidden_workspace(self._workspace_path, definition.files_payload or {}) as repo:
+                    for command in definition.commands:
+                        results.append(
+                            self._run_command(
+                                phase=TEST_PHASE_HIDDEN_EVAL,
+                                command=command,
+                                generated_patch_id=patch.id,
+                                workspace_path=repo,
+                            )
+                        )
+        except (OSError, RuntimeError, ValueError) as exc:
+            # Paths, payloads and exception text may reveal hidden test contents in public failures.
+            raise TestExecutionError(
+                "Hidden evaluation could not complete; operator inspection required."
+            ) from exc
+
+        passed = _all_passed(results)
+        if hidden_tests:
+            self._log_phase_completed(
+                phase=TEST_PHASE_HIDDEN_EVAL,
+                passed=passed,
+                result_count=len(results),
+                patch_status=None,
+                generated_patch_id=patch.id,
+            )
+        return TestExecutionPhaseResult(
+            agent_run_id=self._agent_run_id,
+            phase=TEST_PHASE_HIDDEN_EVAL,
+            passed=passed,
+            test_results=results,
+            error_message=None if passed else "Hidden evaluation command failed.",
+        )
+
     def run_test_command(self, *, phase: str, command: str) -> TestResult:
         self._ensure_execution_allowed()
-        if phase not in {TEST_PHASE_BASELINE, TEST_PHASE_POST_PATCH, TEST_PHASE_HIDDEN_EVAL}:
+        if phase not in {TEST_PHASE_BASELINE, TEST_PHASE_POST_PATCH}:
             raise TestExecutionSafetyError("Only test phases can execute test commands.")
         self._ensure_command_allowed(command, self._agent_run.benchmark_task.test_commands)
         self._mark_running_if_needed()
@@ -278,6 +357,18 @@ class TestExecutionService:
             )
         return results
 
+    def _enabled_hidden_tests(self) -> list[HiddenEvalTest]:
+        return list(
+            self._db.scalars(
+                select(HiddenEvalTest)
+                .where(
+                    HiddenEvalTest.benchmark_task_id == self._agent_run.benchmark_task_id,
+                    HiddenEvalTest.enabled.is_(True),
+                )
+                .order_by(HiddenEvalTest.created_at.asc())
+            )
+        )
+
     def _run_command(
         self,
         *,
@@ -285,13 +376,14 @@ class TestExecutionService:
         command: str,
         generated_patch_id: UUID | None = None,
         attempt_number: int | None = None,
+        workspace_path: Path | None = None,
     ) -> TestResult:
         started = time.perf_counter()
         timed_out = False
         try:
             completed = subprocess.run(
                 command,
-                cwd=self._workspace_path,
+                cwd=workspace_path or self._workspace_path,
                 shell=True,
                 text=True,
                 capture_output=True,

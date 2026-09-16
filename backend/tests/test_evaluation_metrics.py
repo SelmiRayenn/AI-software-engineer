@@ -10,7 +10,11 @@ from sqlalchemy import create_engine, func, select
 from sqlalchemy.orm import Session, sessionmaker
 from sqlalchemy.pool import StaticPool
 
-from app.core.test_phases import TEST_PHASE_POST_PATCH
+from app.core.test_phases import (
+    TEST_PHASE_BASELINE,
+    TEST_PHASE_HIDDEN_EVAL,
+    TEST_PHASE_POST_PATCH,
+)
 from app.db.base import Base
 from app.db.session import get_db
 from app.evaluation import EvaluationRunNotCompleteError, EvaluationService
@@ -122,6 +126,85 @@ def test_tests_passed_true_only_when_all_post_patch_tests_pass(db: Session) -> N
     assert passing_metric.tests_passed is True
     assert failing_metric.tests_passed is False
     assert missing_metric.tests_passed is False
+
+
+def test_visible_and_hidden_pass_resolves_issue_with_full_score(db: Session) -> None:
+    run_id = create_completed_run(
+        db,
+        baseline_passed=[True],
+        post_patch_passed=[True],
+        hidden_eval_passed=[True, True],
+    )
+
+    metric = EvaluationService(db=db, agent_run_id=run_id).evaluate()
+
+    assert metric.baseline_tests_passed is True
+    assert metric.post_patch_tests_passed is True
+    assert metric.hidden_tests_passed is True
+    assert metric.issue_resolved is True
+    assert metric.regression_detected is False
+    assert metric.issue_specific_score == 1.0
+
+
+def test_visible_pass_without_hidden_tests_has_lower_confidence_score(db: Session) -> None:
+    run_id = create_completed_run(db, baseline_passed=[True], post_patch_passed=[True])
+
+    metric = EvaluationService(db=db, agent_run_id=run_id).evaluate()
+
+    assert metric.post_patch_tests_passed is True
+    assert metric.hidden_tests_passed is None
+    assert metric.hidden_tests_run_count == 0
+    assert metric.issue_resolved is True
+    assert metric.issue_specific_score == 0.75
+
+
+def test_hidden_pass_with_visible_failure_receives_partial_score(db: Session) -> None:
+    run_id = create_completed_run(
+        db,
+        baseline_passed=[False],
+        post_patch_passed=[False],
+        hidden_eval_passed=[True],
+    )
+
+    metric = EvaluationService(db=db, agent_run_id=run_id).evaluate()
+
+    assert metric.post_patch_tests_passed is False
+    assert metric.hidden_tests_passed is True
+    assert metric.issue_resolved is False
+    assert metric.issue_specific_score == 0.5
+
+
+def test_baseline_pass_and_post_patch_failure_detects_regression(db: Session) -> None:
+    run_id = create_completed_run(
+        db,
+        baseline_passed=[True, True],
+        post_patch_passed=[True, False],
+    )
+
+    metric = EvaluationService(db=db, agent_run_id=run_id).evaluate()
+
+    assert metric.baseline_tests_passed is True
+    assert metric.post_patch_tests_passed is False
+    assert metric.regression_detected is True
+    assert metric.issue_resolved is False
+    assert metric.issue_specific_score == 0.0
+
+
+def test_hidden_failure_blocks_issue_resolution(db: Session) -> None:
+    run_id = create_completed_run(
+        db,
+        baseline_passed=[True],
+        post_patch_passed=[True],
+        hidden_eval_passed=[True, False],
+    )
+
+    metric = EvaluationService(db=db, agent_run_id=run_id).evaluate()
+
+    assert metric.post_patch_tests_passed is True
+    assert metric.hidden_tests_passed is False
+    assert metric.hidden_tests_failed_count == 1
+    assert metric.issue_resolved is False
+    assert metric.issue_specific_score == 0.0
 
 
 def test_patch_applied_requires_generated_patch_and_clean_application_event(db: Session) -> None:
@@ -268,6 +351,9 @@ def test_metrics_api_evaluates_and_reads_metrics(client: TestClient, db: Session
     assert evaluate_response.status_code == 200
     assert evaluate_response.json()["file_localization_score"] == 1.0
     assert evaluate_response.json()["patch_applied"] is True
+    assert evaluate_response.json()["post_patch_tests_passed"] is True
+    assert evaluate_response.json()["issue_resolved"] is True
+    assert evaluate_response.json()["issue_specific_score"] == 0.75
 
     metrics_response = client.get(f"/agent-runs/{run_id}/metrics")
 
@@ -291,7 +377,9 @@ def create_completed_run(
     generated_files: list[str] | None = None,
     generated_patch_text: str = "diff --git a/src/a.py b/src/a.py\n",
     patch_applied: bool = True,
+    baseline_passed: list[bool] | None = None,
     post_patch_passed: list[bool] | None = None,
+    hidden_eval_passed: list[bool] | None = None,
     model_provider: str = "mock",
     model_events: list[dict[str, object]] | None = None,
     execution_seconds: float = 8.0,
@@ -346,12 +434,18 @@ def create_completed_run(
 
     if generated_files is None:
         generated_files = ["src/a.py"] if generated_patch_text else []
-    db.add(
-        GeneratedPatch(
-            agent_run_id=run.id,
-            patch_text=generated_patch_text,
-            changed_files=generated_files,
-        )
+    generated_patch = GeneratedPatch(
+        agent_run_id=run.id,
+        patch_text=generated_patch_text,
+        changed_files=generated_files,
+        is_selected=True,
+    )
+    db.add(generated_patch)
+    db.flush()
+
+    post_patch_results = [True] if post_patch_passed is None else post_patch_passed
+    run.final_patch_passed_tests = (
+        bool(post_patch_results) and all(post_patch_results) if post_patch_results else None
     )
 
     for file_path in inspected_files or []:
@@ -381,14 +475,31 @@ def create_completed_run(
                     "phase": TEST_PHASE_POST_PATCH,
                     "passed": True,
                     "patch_status": "applied",
+                    "generated_patch_id": str(generated_patch.id),
                 },
             )
         )
 
-    for index, passed in enumerate([True] if post_patch_passed is None else post_patch_passed):
+    for index, passed in enumerate(baseline_passed or []):
         db.add(
             ResultRecord(
                 agent_run_id=run.id,
+                phase=TEST_PHASE_BASELINE,
+                command=f"pytest baseline #{index}",
+                passed=passed,
+                exit_code=0 if passed else 1,
+                stdout="",
+                stderr="",
+                duration_seconds=0.1,
+            )
+        )
+
+    for index, passed in enumerate(post_patch_results):
+        db.add(
+            ResultRecord(
+                agent_run_id=run.id,
+                generated_patch_id=generated_patch.id,
+                attempt_number=1,
                 phase=TEST_PHASE_POST_PATCH,
                 command=f"pytest #{index}",
                 passed=passed,
@@ -396,6 +507,35 @@ def create_completed_run(
                 stdout="",
                 stderr="",
                 duration_seconds=0.1,
+            )
+        )
+
+    for index, passed in enumerate(hidden_eval_passed or []):
+        db.add(
+            ResultRecord(
+                agent_run_id=run.id,
+                generated_patch_id=generated_patch.id,
+                attempt_number=1,
+                phase=TEST_PHASE_HIDDEN_EVAL,
+                command=f"pytest hidden #{index}",
+                passed=passed,
+                exit_code=0 if passed else 1,
+                stdout="",
+                stderr="",
+                duration_seconds=0.1,
+            )
+        )
+    if hidden_eval_passed:
+        db.add(
+            AgentEvent(
+                agent_run_id=run.id,
+                event_type="test_phase_completed",
+                payload_json={
+                    "phase": TEST_PHASE_HIDDEN_EVAL,
+                    "passed": all(hidden_eval_passed),
+                    "generated_patch_id": str(generated_patch.id),
+                    "result_count": len(hidden_eval_passed),
+                },
             )
         )
 

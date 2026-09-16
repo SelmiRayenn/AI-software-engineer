@@ -56,6 +56,14 @@ class ModelComparisonRun(BaseModel):
     metric_id: UUID | None = None
     patch_applied: bool | None = None
     tests_passed: bool | None = None
+    baseline_tests_passed: bool | None = None
+    post_patch_tests_passed: bool | None = None
+    hidden_tests_passed: bool | None = None
+    hidden_tests_run_count: int | None = None
+    hidden_tests_failed_count: int | None = None
+    issue_resolved: bool | None = None
+    regression_detected: bool | None = None
+    issue_specific_score: float | None = None
     file_localization_score: float | None = None
     modified_files_count: int | None = None
     unrelated_files_count: int | None = None

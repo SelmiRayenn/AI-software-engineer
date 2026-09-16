@@ -5,6 +5,7 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from app.core.test_phases import TEST_PHASE_HIDDEN_EVAL
 from app.db.session import get_db
 from app.models import AgentRun, TestResult
 from app.schemas.test_execution import TestExecutionRequest, TestExecutionResponse
@@ -54,7 +55,10 @@ def list_agent_run_tests(run_id: UUID, db: DbSession = None) -> list[TestResultR
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Agent run not found.")
     statement = (
         select(TestResult)
-        .where(TestResult.agent_run_id == run_id)
+        .where(
+            TestResult.agent_run_id == run_id,
+            TestResult.phase != TEST_PHASE_HIDDEN_EVAL,
+        )
         .order_by(TestResult.created_at.asc())
     )
     return list(db.scalars(statement).all())

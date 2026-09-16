@@ -31,14 +31,19 @@ VITE_API_BASE_URL=http://localhost:8000 npm run dev
 2. Confirm the linked issue title, repository, model, timestamps, and run status.
 3. Inspect the generated patch and changed file list.
 4. Review setup, baseline, and post-patch test results by phase. Command logs are collapsible and scrollable.
-5. Review evaluation metrics when available.
+5. Review baseline, visible post-patch, and hidden evaluation status. The issue outcome shows a
+   `1.0`, `0.75`, `0.5`, or `0.0` issue-specific score and labels visible-only outcomes as lower
+   confidence when no hidden tests ran.
 6. Approve the patch with reviewer name and optional notes, or reject it with reviewer name and required notes.
 
 Approved patches become eligible for a future export or pull request creation flow. Rejected patches are blocked from export.
 
 ## Empty States
 
-The detail page explicitly handles runs with no patch, no tests, no metrics, failed execution status, and already approved or rejected patches.
+The detail page explicitly handles runs with no patch, no tests, no metrics, failed execution
+status, hidden evaluation not run, and already approved or rejected patches. Hidden commands and
+logs remain restricted to trusted backend routes; the dashboard receives only aggregate hidden
+status and counts.
 
 ## Screenshot Placeholder
 

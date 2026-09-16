@@ -297,6 +297,10 @@ class AgentRunOrchestrator:
                 if outcome.patch:
                     generated_patch_id = outcome.patch.id
                     changed_files = outcome.patch.changed_files
+                if run_config.run_hidden_tests and outcome.patch and outcome.valid:
+                    test_executor.run_hidden_evaluation(
+                        generated_patch_id=outcome.patch.id, run_hidden_tests=True
+                    )
                 if not outcome.accepted:
                     raise AgentRunStartError(
                         outcome.failure_summary or "Repair attempts exhausted."

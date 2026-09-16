@@ -6,9 +6,10 @@ from alembic.autogenerate import compare_metadata
 from alembic.config import Config
 from alembic.migration import MigrationContext
 from sqlalchemy import create_engine, inspect
+from sqlalchemy.orm import Session
 
 from alembic import command
-from app import models  # noqa: F401
+from app import models
 from app.db.base import Base
 from app.db.migrations import make_alembic_config
 
@@ -24,6 +25,7 @@ EXPECTED_TABLES = {
     "generated_patches",
     "gold_patches",
     "human_reviews",
+    "hidden_eval_tests",
     "repositories",
     "test_results",
     "repository_indexes",
@@ -50,6 +52,16 @@ def test_sqlalchemy_metadata_can_be_loaded() -> None:
     assert "workspace_path" in Base.metadata.tables["agent_runs"].columns
     assert "allow_lockfile_changes" in Base.metadata.tables["benchmark_tasks"].columns
     assert "allow_dependency_file_changes" in Base.metadata.tables["benchmark_tasks"].columns
+    assert {
+        "baseline_tests_passed",
+        "post_patch_tests_passed",
+        "hidden_tests_passed",
+        "hidden_tests_run_count",
+        "hidden_tests_failed_count",
+        "issue_resolved",
+        "regression_detected",
+        "issue_specific_score",
+    }.issubset(Base.metadata.tables["evaluation_metrics"].columns.keys())
 
 
 def test_migration_command_documentation_is_accurate() -> None:
@@ -190,4 +202,69 @@ def test_run_failure_migration_upgrades_and_downgrades_current_schema(tmp_path: 
     command.downgrade(config, "20260911_0005")
 
     assert "agent_run_failures" not in inspect(engine).get_table_names()
+    engine.dispose()
+
+
+def test_hidden_eval_migration_upgrades_and_downgrades_current_schema(tmp_path: Path) -> None:
+    database_url = f"sqlite:///{(tmp_path / 'hidden-eval-migration.db').as_posix()}"
+    config = make_alembic_config(database_url)
+    command.upgrade(config, "20260911_0006")
+    engine = create_engine(database_url)
+
+    command.upgrade(config, "head")
+
+    inspector = inspect(engine)
+    assert "hidden_eval_tests" in inspector.get_table_names()
+    assert {"benchmark_task_id", "commands", "files_payload", "enabled"}.issubset(
+        _column_names(inspector, "hidden_eval_tests")
+    )
+    assert {"hidden_tests_passed", "hidden_tests_run_count", "hidden_tests_failed_count"}.issubset(
+        _column_names(inspector, "evaluation_metrics")
+    )
+
+    with Session(engine) as db:
+        repository = models.Repository(
+            name="sample", owner="example", url="https://github.com/example/sample"
+        )
+        task = models.BenchmarkTask(
+            repository=repository, issue_number=1, issue_title="Fix bug", base_commit="base"
+        )
+        suite = models.HiddenEvalTest(benchmark_task=task, name="regression", commands=["pytest"])
+        db.add(suite)
+        db.commit()
+        assert suite.created_at is not None
+        assert suite.enabled is True
+
+    command.downgrade(config, "20260911_0006")
+
+    assert "hidden_eval_tests" not in inspect(engine).get_table_names()
+    assert "hidden_tests_passed" not in _column_names(inspect(engine), "evaluation_metrics")
+    engine.dispose()
+
+
+def test_issue_success_metrics_migration_upgrades_and_downgrades_current_schema(
+    tmp_path: Path,
+) -> None:
+    database_url = f"sqlite:///{(tmp_path / 'issue-success-metrics.db').as_posix()}"
+    config = make_alembic_config(database_url)
+    command.upgrade(config, "20260911_0007")
+    engine = create_engine(database_url)
+
+    command.upgrade(config, "head")
+
+    columns = _column_names(inspect(engine), "evaluation_metrics")
+    assert {
+        "baseline_tests_passed",
+        "post_patch_tests_passed",
+        "issue_resolved",
+        "regression_detected",
+        "issue_specific_score",
+    }.issubset(columns)
+
+    command.downgrade(config, "20260911_0007")
+
+    columns = _column_names(inspect(engine), "evaluation_metrics")
+    assert "baseline_tests_passed" not in columns
+    assert "issue_specific_score" not in columns
+    assert "hidden_tests_passed" in columns
     engine.dispose()

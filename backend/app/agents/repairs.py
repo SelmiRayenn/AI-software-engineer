@@ -55,6 +55,7 @@ class SubmissionDecision:
 @dataclass(frozen=True)
 class RepairOutcome:
     patch: GeneratedPatch | None
+    valid: bool
     accepted: bool
     failure_summary: str | None
     failure_category: str | None
@@ -257,6 +258,7 @@ class AgentRepairService:
             self._patches.restore_candidate(patch)
         return RepairOutcome(
             patch=patch,
+            valid=valid,
             accepted=accepted,
             failure_summary=summary,
             failure_category=None if accepted else final_failure_category,

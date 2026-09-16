@@ -46,9 +46,49 @@ has evidence that the patch applied cleanly. Evidence currently comes from:
 - a `patch_applied` event from the patch service
 - a post-patch test phase event with `patch_status` of `applied` or `already_applied`
 
-### Test Pass
+### Visible And Baseline Tests
 
-`tests_passed` is `true` only when post-patch test results exist and all `post_patch` results passed.
+- `baseline_tests_passed` is true only when baseline results exist and every baseline command passed.
+- `post_patch_tests_passed` is true only when results exist for the final selected patch and every
+  visible post-patch command passed.
+- `tests_passed` remains a compatibility alias for `post_patch_tests_passed`.
+- `regression_detected` is true when baseline tests passed but post-patch tests failed.
+
+### Hidden Evaluation
+
+Hidden tests have separate metrics and do not change `tests_passed`:
+
+- `hidden_tests_passed`: null if no hidden commands ran for the selected patch; true only if all
+  passed and the hidden phase completed, otherwise false.
+- `hidden_tests_run_count`: stored hidden command result count for the final selected patch.
+- `hidden_tests_failed_count`: failed/timed-out commands within that count.
+
+Partial execution cannot report hidden success even if the commands that finished passed.
+Re-evaluation updates these fields on the existing metric row. Earlier candidate results are
+excluded. A completed run can pass ordinary tests but fail hidden evaluation; the issue-specific
+outcome is `hidden_tests_passed`. Run details and comparisons expose aggregates only, with private
+logs available through the trusted route described in [hidden evaluation tests](hidden-evaluation-tests.md).
+
+### Issue-Specific Success
+
+`issue_resolved` combines visible and hidden evidence:
+
+- With hidden results, visible post-patch and hidden tests must both pass.
+- Without hidden results, visible post-patch tests determine resolution, but confidence is lower.
+
+`issue_specific_score` is deliberately discrete and explainable:
+
+| Visible post-patch | Hidden evaluation | Score |
+| --- | --- | ---: |
+| Pass | Pass | `1.0` |
+| Pass | Not run | `0.75` |
+| Fail | Pass | `0.5` |
+| Any other outcome | Fail or incomplete | `0.0` |
+
+Hidden evaluation is considered run when at least one hidden command result exists. A partial
+hidden phase cannot report success. The API returns `hidden_tests_passed: null` when no hidden
+commands ran, which lets clients distinguish lower-confidence visible-only success from hidden
+evaluation failure.
 
 ### Modified And Unrelated Files
 
@@ -94,4 +134,7 @@ If either timestamp is unavailable, the value is `null`.
 - The formulas are intentionally simple and explainable.
 - Gold solution data is read by the evaluation service only; normal agent-facing task/run responses
   still do not expose `GoldPatch.patch_text`.
-- Human review and leaderboard aggregation are still future layers.
+- Hidden execution currently uses the existing subprocess executor; see the hidden evaluation
+  documentation for isolation limits. Leaderboard aggregation remains a future layer.
+- The current confidence indicator is derived from whether hidden tests ran; it is not a
+  probabilistic confidence estimate.

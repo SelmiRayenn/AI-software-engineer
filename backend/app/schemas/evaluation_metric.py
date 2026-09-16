@@ -9,6 +9,14 @@ class EvaluationMetricBase(BaseModel):
     file_localization_score: float | None = None
     patch_applied: bool = False
     tests_passed: bool = False
+    baseline_tests_passed: bool = False
+    post_patch_tests_passed: bool = False
+    hidden_tests_passed: bool | None = None
+    hidden_tests_run_count: int = 0
+    hidden_tests_failed_count: int = 0
+    issue_resolved: bool = False
+    regression_detected: bool = False
+    issue_specific_score: float = 0.0
     modified_files_count: int = 0
     unrelated_files_count: int = 0
     tokens_used: int | None = None

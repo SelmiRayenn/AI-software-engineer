@@ -1,16 +1,21 @@
 from __future__ import annotations
 
+import base64
+import binascii
 import re
 from collections.abc import Iterable
 from dataclasses import dataclass
+from pathlib import PurePosixPath
 from typing import Any
-from urllib.parse import urlparse
+from urllib.parse import quote, urlparse
 
 import httpx
 
 from app.core.config import settings
+from app.github.test_detection import classify_pull_request_file, is_likely_test_file
 from app.schemas.github import (
     GitHubBenchmarkTaskHint,
+    GitHubHiddenTestCandidate,
     GitHubIssueCommentPreview,
     GitHubIssuePreview,
     GitHubIssuePreviewResponse,
@@ -19,11 +24,13 @@ from app.schemas.github import (
     GitHubPullRequestPreview,
     GitHubPullRequestPreviewResponse,
     GitHubRepositoryPreview,
+    GitHubTrustedPullRequestPreviewResponse,
     GitHubUserPreview,
 )
 
 GITHUB_API_BASE_URL = "https://api.github.com"
 LINKED_PR_LIMIT = 10
+MAX_HIDDEN_TEST_CONTENT_BYTES = 250_000
 
 
 @dataclass(frozen=True)
@@ -148,6 +155,20 @@ class GitHubService:
             ),
         )
 
+    def preview_pull_request_trusted(
+        self,
+        repository_url: str,
+        pull_request_number: int,
+    ) -> GitHubTrustedPullRequestPreviewResponse:
+        preview = self.preview_pull_request(repository_url, pull_request_number)
+        repo_ref = parse_github_repo_url(repository_url)
+        candidates = self.hidden_test_candidates(repo_ref, preview.pull_request)
+        return GitHubTrustedPullRequestPreviewResponse(
+            **preview.model_dump(),
+            detected_test_files=self._test_files(preview.pull_request.files),
+            hidden_test_candidates=candidates,
+        )
+
     def fetch_repository_metadata(self, repo_ref: GitHubRepoRef) -> dict[str, Any]:
         return self._get_json(f"/repos/{repo_ref.owner}/{repo_ref.name}")
 
@@ -214,6 +235,35 @@ class GitHubService:
             accept="application/vnd.github.v3.diff",
         )
 
+    def fetch_file_content(self, repo_ref: GitHubRepoRef, path: str, ref: str) -> str:
+        encoded_path = "/".join(quote(part, safe="") for part in path.split("/"))
+        payload = self._get_json(
+            f"/repos/{repo_ref.owner}/{repo_ref.name}/contents/{encoded_path}?ref={quote(ref, safe='')}"
+        )
+        if payload.get("type") != "file" or payload.get("encoding") != "base64":
+            raise GitHubClientError("GitHub did not return inline base64 file content")
+        encoded_content = payload.get("content")
+        if not isinstance(encoded_content, str):
+            raise GitHubClientError("GitHub did not return file content")
+        if self._number(payload.get("size")) > MAX_HIDDEN_TEST_CONTENT_BYTES:
+            raise GitHubClientError(
+                f"Test file exceeds the {MAX_HIDDEN_TEST_CONTENT_BYTES}-byte candidate limit"
+            )
+        try:
+            raw = base64.b64decode("".join(encoded_content.split()), validate=True)
+        except (binascii.Error, ValueError) as exc:
+            raise GitHubClientError("GitHub returned invalid base64 file content") from exc
+        if len(raw) > MAX_HIDDEN_TEST_CONTENT_BYTES:
+            raise GitHubClientError(
+                f"Test file exceeds the {MAX_HIDDEN_TEST_CONTENT_BYTES}-byte candidate limit"
+            )
+        if b"\x00" in raw:
+            raise GitHubClientError("Binary test files cannot become hidden evaluation candidates")
+        try:
+            return raw.decode("utf-8")
+        except UnicodeDecodeError as exc:
+            raise GitHubClientError("Test file is not valid UTF-8 text") from exc
+
     def repository_preview_from_data(self, data: dict[str, Any]) -> GitHubRepositoryPreview:
         return self._repository_preview(data)
 
@@ -236,6 +286,47 @@ class GitHubService:
         files: list[GitHubPullRequestFilePreview],
     ) -> list[str]:
         return self._test_files(files)
+
+    def hidden_test_candidates(
+        self,
+        repo_ref: GitHubRepoRef,
+        pull_request: GitHubPullRequestPreview,
+        configured_test_commands: list[str] | None = None,
+    ) -> list[GitHubHiddenTestCandidate]:
+        candidates: list[GitHubHiddenTestCandidate] = []
+        for file in pull_request.files:
+            if not is_likely_test_file(file.filename):
+                continue
+            commands = self._hidden_test_commands(file.filename, configured_test_commands or [])
+            content: str | None = None
+            reason: str | None = None
+            if file.status == "removed":
+                reason = "Removed test files have no content at the pull request head."
+            elif not pull_request.head_sha:
+                reason = "Pull request head commit is unavailable."
+            else:
+                try:
+                    content = self.fetch_file_content(
+                        repo_ref,
+                        file.filename,
+                        pull_request.head_sha,
+                    )
+                except GitHubClientError as exc:
+                    reason = str(exc)
+            if content is not None and not commands:
+                reason = "No supported test command could be inferred for this file."
+            candidates.append(
+                GitHubHiddenTestCandidate(
+                    path=file.filename,
+                    status=file.status,
+                    patch=file.patch,
+                    content=content,
+                    content_available=content is not None,
+                    suggested_commands=commands,
+                    unavailable_reason=reason,
+                )
+            )
+        return candidates
 
     def fix_commit_from_pull_request(
         self,
@@ -431,9 +522,12 @@ class GitHubService:
         )
 
     def _file_preview(self, data: dict[str, Any]) -> GitHubPullRequestFilePreview:
+        filename = str(data.get("filename") or "")
         return GitHubPullRequestFilePreview(
-            filename=str(data.get("filename") or ""),
+            filename=filename,
             status=str(data.get("status") or ""),
+            file_kind=classify_pull_request_file(filename),
+            previous_filename=data.get("previous_filename"),
             additions=self._number(data.get("additions")),
             deletions=self._number(data.get("deletions")),
             changes=self._number(data.get("changes")),
@@ -509,11 +603,34 @@ class GitHubService:
             target.append(value)
 
     def _test_files(self, files: list[GitHubPullRequestFilePreview]) -> list[str]:
-        return [
-            file.filename
-            for file in files
-            if "test" in file.filename.lower() or file.filename.lower().startswith("tests/")
-        ]
+        return list(dict.fromkeys(file.filename for file in files if file.file_kind == "test"))
+
+    def _hidden_test_commands(
+        self,
+        path: str,
+        configured_test_commands: list[str],
+    ) -> list[str]:
+        candidate = PurePosixPath(path)
+        if (
+            not re.fullmatch(r"[A-Za-z0-9_./-]+", path)
+            or candidate.is_absolute()
+            or not candidate.parts
+            or ".." in candidate.parts
+        ):
+            return []
+        staged_path = f".benchmark-hidden-eval/{path}"
+        suffix = candidate.suffix.lower()
+        if suffix == ".py":
+            return [f"python -m pytest -q {staged_path}"]
+        if suffix in {".js", ".jsx", ".ts", ".tsx", ".mjs", ".cjs"}:
+            lowered = "\n".join(configured_test_commands).lower()
+            if "vitest" in lowered:
+                return [f"npx --no-install vitest run {staged_path}"]
+            if "jest" in lowered:
+                return [f"npx --no-install jest --runInBand {staged_path}"]
+        if suffix == ".rb" and any("rspec" in command.lower() for command in configured_test_commands):
+            return [f"bundle exec rspec {staged_path}"]
+        return []
 
     def _fix_commit(self, pull_request: GitHubPullRequestPreview | None) -> str | None:
         if pull_request is None:

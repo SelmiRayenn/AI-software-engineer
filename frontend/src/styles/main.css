@@ -721,6 +721,20 @@ textarea {
   overflow-wrap: anywhere;
 }
 
+.metric-item small {
+  color: #607086;
+  font-size: 12px;
+  line-height: 1.4;
+}
+
+.metric-item[data-tone="positive"] strong {
+  color: #11633d;
+}
+
+.metric-item[data-tone="negative"] strong {
+  color: #9f1d1d;
+}
+
 @keyframes spin {
   to {
     transform: rotate(360deg);
