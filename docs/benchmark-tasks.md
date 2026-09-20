@@ -80,7 +80,10 @@ Gold solution data is available through the evaluation namespace:
 GET /evaluation/benchmark-tasks/{task_id}/gold-patch
 ```
 
-This route returns the stored gold patch, including patch text and changed files. The project does not implement authentication yet, so keep these routes restricted to trusted local/operator environments until admin auth exists.
+This route returns the stored gold patch, including patch text and changed files, only with
+the configured `TRUSTED_OPERATOR_TOKEN` in the `X-Operator-Token` header. It is disabled (503)
+when no token is configured and returns 403 for a missing or invalid token. This shared operator
+credential is not a complete user/role management system.
 
 ## Validation and Lifecycle
 
@@ -111,6 +114,10 @@ draft -> ready -> running -> completed
 Tasks can be archived from draft, ready, completed, or failed states. A failed task can move back to ready after validation passes. Archived tasks are terminal.
 
 The `mark-ready` endpoint runs validation first. If validation fails, the endpoint returns the validation result and leaves the task unchanged.
+
+Tasks created through [benchmark imports](benchmark-imports.md) may omit issue and PR numbers.
+Their import provenance replaces those two requirements; configured tests, a base commit,
+repository validity and gold data are still required for readiness.
 
 ## Manual Draft Dataset
 

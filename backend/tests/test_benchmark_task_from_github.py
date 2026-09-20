@@ -47,6 +47,7 @@ def client() -> Generator[TestClient, None, None]:
 
 def test_create_benchmark_task_from_github_stores_gold_and_hides_solution(
     client: TestClient,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     response = client.post("/benchmark-tasks/from-github", json=request_payload())
 
@@ -84,7 +85,11 @@ def test_create_benchmark_task_from_github_stores_gold_and_hides_solution(
     assert "fix_commit" not in normal_task
     assert "linked_pr_url" not in normal_task
 
-    gold_response = client.get(f"/evaluation/benchmark-tasks/{payload['id']}/gold-patch")
+    monkeypatch.setattr(settings, "trusted_operator_token", "test-operator")
+    gold_response = client.get(
+        f"/evaluation/benchmark-tasks/{payload['id']}/gold-patch",
+        headers={"X-Operator-Token": "test-operator"},
+    )
     assert gold_response.status_code == 200
     assert gold_response.json()["patch_text"].startswith("diff --git")
 
@@ -199,9 +204,7 @@ def handler(request: httpx.Request) -> httpx.Response:
         return json_response(commits_payload())
     if path == "/repos/example/calculator/contents/tests/test_core.py":
         assert request.url.params["ref"] == "head-sha"
-        content = base64.b64encode(
-            b"def test_divide_by_zero():\n    assert True\n"
-        ).decode("ascii")
+        content = base64.b64encode(b"def test_divide_by_zero():\n    assert True\n").decode("ascii")
         return json_response({"type": "file", "encoding": "base64", "content": content})
 
     return json_response({"message": "not found"}, status_code=404)

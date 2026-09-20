@@ -135,6 +135,13 @@ Initial API surfaces:
 
 ## Benchmark Task Lifecycle
 
+Trusted JSON/JSONL datasets can be imported through `POST /benchmark-imports` or
+`scripts/import_benchmark_tasks.py`. Imports create draft tasks, preserve external task IDs,
+and keep gold patches and hidden test metadata outside agent-visible data.
+See [benchmark imports](docs/benchmark-imports.md) for setup, the record format, and result summaries.
+Tasks can be grouped into ordered, versioned benchmark packs through `/benchmark-packs`; imports
+can append newly created tasks directly to a pack. See [benchmark packs](docs/benchmark-packs.md).
+
 Benchmark tasks move through a small lifecycle:
 
 ```text

@@ -56,6 +56,8 @@ class HiddenEvalTestRead(BaseModel):
     name: str
     commands: list[str]
     files_payload: dict[str, str] | None = None
+    patch_text: str | None = None
+    evaluation_metadata: dict[str, list[str]] | None = None
     enabled: bool
     created_at: datetime
 

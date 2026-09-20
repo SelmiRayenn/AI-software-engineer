@@ -285,6 +285,10 @@ class TestExecutionService:
             ):
                 raise TestExecutionSafetyError("Workspace does not match the selected patch.")
             for hidden_test in hidden_tests:
+                if hidden_test.patch_text is not None:
+                    raise TestExecutionSafetyError(
+                        "Imported hidden patches must be converted to file payloads before use."
+                    )
                 # Validate direct database/backend writes as strictly as trusted HTTP requests.
                 from app.schemas.hidden_eval_test import HiddenEvalTestCreate
 

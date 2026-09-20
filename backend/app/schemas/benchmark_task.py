@@ -9,7 +9,7 @@ from app.schemas.repository import RepositoryRead
 
 class BenchmarkTaskBase(BaseModel):
     repository_id: UUID
-    issue_number: int
+    issue_number: int | None = None
     issue_title: str
     issue_body: str | None = None
     issue_comments: list[dict[str, str | None]] = Field(default_factory=list)
@@ -80,7 +80,7 @@ class AgentVisibleBenchmarkTaskRead(BaseModel):
     id: UUID
     repository_id: UUID
     repository: RepositoryRead
-    issue_number: int
+    issue_number: int | None = None
     issue_title: str
     issue_body: str | None = None
     issue_comments: list[AgentVisibleIssueComment] = Field(default_factory=list)

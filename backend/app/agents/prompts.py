@@ -40,7 +40,7 @@ Repository:
 
 Base commit: {base_commit}
 
-Issue #{issue_number}: {issue_title}
+Issue {issue_reference}: {issue_title}
 
 Issue body:
 {issue_body}
@@ -154,7 +154,7 @@ def render_agent_prompts(
         issue_context_prompt=ISSUE_CONTEXT_PROMPT_TEMPLATE.format(
             repository_json=json.dumps(repository_context, indent=2),
             base_commit=task.base_commit,
-            issue_number=task.issue_number,
+            issue_reference=f"#{task.issue_number}" if task.issue_number else "(no linked issue)",
             issue_title=task.issue_title,
             issue_body=task.issue_body or "(no issue body)",
             issue_comments=(json.dumps(comments, indent=2) if comments else "(not included)"),

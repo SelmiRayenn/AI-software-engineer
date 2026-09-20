@@ -61,7 +61,7 @@ export function BenchmarkTasksPage() {
               {tasks.map((task) => (
                 <tr key={task.id}>
                   <td>
-                    <strong>#{task.issue_number}</strong>
+                    <strong>{task.issue_number ? `#${task.issue_number}` : "No linked issue"}</strong>
                     <span>{task.issue_title}</span>
                   </td>
                   <td>

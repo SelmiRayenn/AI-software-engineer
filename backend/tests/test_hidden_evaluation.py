@@ -300,6 +300,33 @@ def test_hidden_evaluation_is_not_available_from_public_test_command_api(
         service.run_test_command(phase=TEST_PHASE_HIDDEN_EVAL, command="pytest")
 
 
+def test_imported_patch_suite_cannot_silently_execute_without_applying_payload(
+    task_and_run: tuple[BenchmarkTask, AgentRun, Path],
+    db: Session,
+    monkeypatch,
+) -> None:
+    task, run, _ = task_and_run
+    db.add(
+        HiddenEvalTest(
+            benchmark_task_id=task.id,
+            name="imported",
+            commands=["echo must-not-run"],
+            patch_text="PRIVATE_IMPORTED_PATCH",
+            enabled=True,
+        )
+    )
+    db.commit()
+    service = ExecutionService(db=db, agent_run_id=run.id)
+
+    def unexpected_command(**kwargs):
+        pytest.fail("Imported patch payload must not be silently ignored")
+
+    monkeypatch.setattr(service, "_run_command", unexpected_command)
+    with pytest.raises(ExecutionError, match="operator inspection required") as error:
+        service.run_hidden_evaluation(run_hidden_tests=True)
+    assert "PRIVATE_IMPORTED_PATCH" not in str(error.value)
+
+
 @pytest.mark.parametrize("header", [{}, {"X-Operator-Token": "wrong"}, {"X-Actor": "admin"}])
 def test_all_trusted_routes_reject_unauthenticated_access(client, task_and_run, header):
     task, run, _ = task_and_run

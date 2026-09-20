@@ -40,6 +40,16 @@ class ModelProviderFactory:
             )
         raise ModelProviderConfigError(f"Unknown model provider: {provider_name}")
 
+    def resolve_model_name(self, provider_name: str, model_name: str | None = None) -> str:
+        """Resolve configuration for queued runs without constructing or calling a provider."""
+        defaults = {
+            "mock": "mock-model",
+            "openai": self._settings.openai_default_model,
+            "anthropic": self._settings.anthropic_default_model,
+            "local": self._settings.local_model_default_model,
+        }
+        return model_name or defaults.get(provider_name.strip().lower(), "default")
+
 
 def create_model_provider(
     provider_name: str,

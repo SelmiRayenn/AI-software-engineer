@@ -20,9 +20,7 @@ def upgrade() -> None:
         sa.Column("id", sa.Uuid(), nullable=False),
         sa.Column("created_at", sa.DateTime(timezone=True), nullable=False),
         sa.ForeignKeyConstraint(["agent_run_id"], ["agent_runs.id"], ondelete="CASCADE"),
-        sa.ForeignKeyConstraint(
-            ["source_event_id"], ["agent_events.id"], ondelete="SET NULL"
-        ),
+        sa.ForeignKeyConstraint(["source_event_id"], ["agent_events.id"], ondelete="SET NULL"),
         sa.PrimaryKeyConstraint("id"),
     )
     op.create_index(

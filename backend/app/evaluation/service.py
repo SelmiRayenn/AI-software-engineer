@@ -244,19 +244,7 @@ class EvaluationService:
         return len(generated_files - gold_files)
 
     def _tokens_and_cost(self, events: list[AgentEvent]) -> tuple[int, float]:
-        if self._agent_run.model_provider == "mock":
-            return 0, 0.0
-
-        tokens_used = 0
-        estimated_cost = 0.0
-        for event in events:
-            if event.event_type != "model_response":
-                continue
-            payload = event.payload_json or {}
-            tokens_used += _int_value(payload.get("input_tokens"))
-            tokens_used += _int_value(payload.get("output_tokens"))
-            estimated_cost += _float_value(payload.get("estimated_cost"))
-        return tokens_used, round(estimated_cost, 8)
+        return model_usage_totals(self._agent_run.model_provider, events)
 
     def _execution_time_seconds(self) -> float | None:
         if self._agent_run.started_at is None or self._agent_run.completed_at is None:
@@ -296,6 +284,22 @@ class EvaluationService:
             )
         )
         self._db.commit()
+
+
+def model_usage_totals(provider: str, events: list[AgentEvent]) -> tuple[int, float]:
+    """Account for provider usage even when a task fails before metrics can be evaluated."""
+    if provider == "mock":
+        return 0, 0.0
+    tokens_used = 0
+    estimated_cost = 0.0
+    for event in events:
+        if event.event_type != "model_response":
+            continue
+        payload = event.payload_json or {}
+        tokens_used += _int_value(payload.get("input_tokens"))
+        tokens_used += _int_value(payload.get("output_tokens"))
+        estimated_cost += _float_value(payload.get("estimated_cost"))
+    return tokens_used, round(estimated_cost, 8)
 
 
 def _normalized_files(files: list[str] | None) -> set[str]:

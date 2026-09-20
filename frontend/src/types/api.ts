@@ -34,7 +34,7 @@ export interface BenchmarkTask {
   id: UUID;
   repository_id: UUID;
   repository: Repository;
-  issue_number: number;
+  issue_number: number | null;
   issue_title: string;
   issue_body: string | null;
   base_commit: string;
@@ -63,7 +63,7 @@ export interface AgentRunDetailRepository {
 
 export interface AgentRunDetailBenchmarkTask {
   id: UUID;
-  issue_number: number;
+  issue_number: number | null;
   issue_title: string;
 }
 

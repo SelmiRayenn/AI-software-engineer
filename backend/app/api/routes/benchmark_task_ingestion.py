@@ -14,7 +14,11 @@ from app.benchmark_tasks import (
     to_agent_visible_task,
     validate_benchmark_task,
 )
-from app.core.trusted import TRUSTED_OPERATOR_HEADER, verify_trusted_operator_token
+from app.core.trusted import (
+    TRUSTED_OPERATOR_HEADER,
+    require_trusted_operator,
+    verify_trusted_operator_token,
+)
 from app.db.session import get_db
 from app.github import GitHubClientError, GitHubService
 from app.schemas.benchmark_task import (
@@ -25,7 +29,9 @@ from app.schemas.benchmark_task import (
 from app.schemas.gold_patch import GoldPatchRead
 
 router = APIRouter(tags=["benchmark tasks"])
-evaluation_router = APIRouter(prefix="/evaluation", tags=["evaluation"])
+evaluation_router = APIRouter(
+    prefix="/evaluation", tags=["evaluation"], dependencies=[Depends(require_trusted_operator)]
+)
 
 DbSession = Annotated[Session, Depends(get_db)]
 

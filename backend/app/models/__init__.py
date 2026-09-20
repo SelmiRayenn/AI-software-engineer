@@ -1,6 +1,9 @@
 from app.models.agent_event import AgentEvent
 from app.models.agent_run import AgentRun
 from app.models.agent_run_failure import AgentRunFailure
+from app.models.benchmark_import import BenchmarkImport
+from app.models.benchmark_pack import BenchmarkPack, BenchmarkPackTask
+from app.models.benchmark_pack_run import BenchmarkPackRun, BenchmarkPackRunTask
 from app.models.benchmark_task import BenchmarkTask
 from app.models.evaluation_metric import EvaluationMetric
 from app.models.generated_patch import GeneratedPatch
@@ -22,6 +25,11 @@ __all__ = [
     "AgentEvent",
     "AgentRun",
     "AgentRunFailure",
+    "BenchmarkImport",
+    "BenchmarkPack",
+    "BenchmarkPackRun",
+    "BenchmarkPackRunTask",
+    "BenchmarkPackTask",
     "BenchmarkTask",
     "ChunkEmbedding",
     "EvaluationMetric",

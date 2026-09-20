@@ -49,9 +49,7 @@ def is_likely_test_file(path: str) -> bool:
     stem = candidate.stem
 
     if any(
-        part in _TEST_DIRECTORIES
-        or part.startswith("test_")
-        or part.endswith(("_test", "_tests"))
+        part in _TEST_DIRECTORIES or part.startswith("test_") or part.endswith(("_test", "_tests"))
         for part in directory_parts
     ):
         return True

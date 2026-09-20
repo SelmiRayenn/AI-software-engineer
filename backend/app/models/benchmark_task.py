@@ -12,6 +12,8 @@ from app.models.mixins import CreatedAtMixin, UUIDPrimaryKeyMixin
 
 if TYPE_CHECKING:
     from app.models.agent_run import AgentRun
+    from app.models.benchmark_import import BenchmarkImport
+    from app.models.benchmark_pack import BenchmarkPackTask
     from app.models.gold_patch import GoldPatch
     from app.models.hidden_eval_test import HiddenEvalTest
     from app.models.repository import Repository
@@ -26,7 +28,7 @@ class BenchmarkTask(UUIDPrimaryKeyMixin, CreatedAtMixin, Base):
         index=True,
         nullable=False,
     )
-    issue_number: Mapped[int] = mapped_column(Integer, nullable=False)
+    issue_number: Mapped[int | None] = mapped_column(Integer, nullable=True)
     issue_title: Mapped[str] = mapped_column(String(500), nullable=False)
     issue_body: Mapped[str | None] = mapped_column(Text, nullable=True)
     issue_comments: Mapped[list[dict[str, str | None]]] = mapped_column(
@@ -50,6 +52,12 @@ class BenchmarkTask(UUIDPrimaryKeyMixin, CreatedAtMixin, Base):
     status: Mapped[str] = mapped_column(String(50), default="draft", index=True, nullable=False)
 
     repository: Mapped["Repository"] = relationship(back_populates="benchmark_tasks")
+    import_record: Mapped["BenchmarkImport | None"] = relationship(
+        back_populates="benchmark_task", cascade="all, delete-orphan", uselist=False
+    )
+    pack_memberships: Mapped[list["BenchmarkPackTask"]] = relationship(
+        back_populates="benchmark_task", cascade="all, delete-orphan"
+    )
     gold_patch: Mapped["GoldPatch | None"] = relationship(
         back_populates="benchmark_task",
         cascade="all, delete-orphan",

@@ -628,7 +628,9 @@ class GitHubService:
                 return [f"npx --no-install vitest run {staged_path}"]
             if "jest" in lowered:
                 return [f"npx --no-install jest --runInBand {staged_path}"]
-        if suffix == ".rb" and any("rspec" in command.lower() for command in configured_test_commands):
+        if suffix == ".rb" and any(
+            "rspec" in command.lower() for command in configured_test_commands
+        ):
             return [f"bundle exec rspec {staged_path}"]
         return []
 

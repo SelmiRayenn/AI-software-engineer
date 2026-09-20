@@ -340,28 +340,9 @@ class PatchService:
         self._validate_patch_size(patch_text)
         self._reject_binary_patch(patch_text)
 
-        changed_files: set[str] = set()
-        in_hunk = False
-        for line in patch_text.splitlines():
-            if line.startswith("diff --git "):
-                in_hunk = False
-                for raw_path in _diff_git_paths(line):
-                    changed_files.add(self._normalize_patch_path(raw_path))
-                continue
-            if line.startswith("@@ "):
-                in_hunk = True
-                continue
-            if not in_hunk and line.startswith(("--- ", "+++ ")):
-                raw_path = _first_patch_path_token(line[4:])
-                if raw_path != "/dev/null":
-                    changed_files.add(self._normalize_patch_path(raw_path))
-                continue
-            for prefix in ("rename from ", "rename to ", "copy from ", "copy to "):
-                if not in_hunk and line.startswith(prefix):
-                    changed_files.add(self._normalize_patch_path(line[len(prefix) :]))
-                    break
-
-        changed_files_list = sorted(changed_files)
+        changed_files_list = sorted(
+            {self._normalize_patch_path(path) for path in extract_patch_paths(patch_text)}
+        )
         self._validate_changed_file_count(changed_files_list)
         return changed_files_list
 
@@ -575,6 +556,30 @@ class PatchService:
             )
         )
         self._db.commit()
+
+
+def extract_patch_paths(patch_text: str) -> list[str]:
+    """Extract header paths only; callers must validate them before any filesystem use."""
+    paths: set[str] = set()
+    in_hunk = False
+    for line in patch_text.splitlines():
+        if line.startswith("diff --git "):
+            in_hunk = False
+            paths.update(_diff_git_paths(line))
+            continue
+        if line.startswith("@@ "):
+            in_hunk = True
+            continue
+        if not in_hunk and line.startswith(("--- ", "+++ ")):
+            path = _first_patch_path_token(line[4:])
+            if path != "/dev/null":
+                paths.add(path)
+            continue
+        for prefix in ("rename from ", "rename to ", "copy from ", "copy to "):
+            if not in_hunk and line.startswith(prefix):
+                paths.add(line[len(prefix) :])
+                break
+    return sorted(paths)
 
 
 def _diff_git_paths(line: str) -> list[str]:

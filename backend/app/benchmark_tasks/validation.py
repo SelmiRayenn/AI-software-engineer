@@ -38,13 +38,14 @@ def validate_benchmark_task(db: Session, task: BenchmarkTask) -> BenchmarkTaskVa
         except ValueError as exc:
             errors.append(f"repository_url is invalid: {exc}")
 
-    if task.issue_number is None or task.issue_number <= 0:
+    imported = task.import_record is not None
+    if not imported and (task.issue_number is None or task.issue_number <= 0):
         errors.append("issue_number must be a positive GitHub issue number.")
 
     pull_request_number = task.pull_request_number or _pull_request_number_from_url(
         task.linked_pr_url
     )
-    if pull_request_number is None or pull_request_number <= 0:
+    if not imported and (pull_request_number is None or pull_request_number <= 0):
         errors.append("pull_request_number must be present.")
 
     if not isinstance(task.base_commit, str) or not task.base_commit.strip():

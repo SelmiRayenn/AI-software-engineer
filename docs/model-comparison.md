@@ -4,6 +4,11 @@ Compare 2-10 distinct provider/model pairs against the same ready benchmark task
 gets a UUID and each model gets its own AgentRun, workspace, tool trace, generated patch, test
 results, and EvaluationMetric. Models run sequentially in request order.
 
+To evaluate **one model across many tasks**, use [benchmark pack runs](benchmark-packs.md#run-a-pack):
+`POST /benchmark-packs/{pack_id}/runs` and `GET /benchmark-pack-runs/{pack_run_id}`. Pack runs store
+their ordered task roster and aggregate issue-success, test, localization, usage and timing results.
+The comparison endpoints below continue to compare multiple models against a single task.
+
 ## Start a Comparison
 
 ```http

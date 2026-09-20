@@ -154,7 +154,7 @@ export function AgentRunDetailPage({ runId, onNavigate }: AgentRunDetailPageProp
         }
         eyebrow="Agent Run"
         title={`Run ${shortId(state.run.id)}`}
-        description={`#${state.run.benchmark_task.issue_number} in ${state.run.repository.owner}/${state.run.repository.name}`}
+        description={`${state.run.benchmark_task.issue_number ? `#${state.run.benchmark_task.issue_number}` : "No linked issue"} in ${state.run.repository.owner}/${state.run.repository.name}`}
       />
 
       {failedRun ? (
@@ -209,7 +209,9 @@ export function AgentRunDetailPage({ runId, onNavigate }: AgentRunDetailPageProp
             <div>
               <dt>Issue</dt>
               <dd>
-                #{state.run.benchmark_task.issue_number}
+                {state.run.benchmark_task.issue_number
+                  ? `#${state.run.benchmark_task.issue_number}`
+                  : "No linked issue"}
                 <span>{state.run.benchmark_task.issue_title}</span>
               </dd>
             </div>

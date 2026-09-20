@@ -25,6 +25,8 @@ DELETE /hidden-tests/{hidden_test_id}
 POST   /agent-runs/{task_id}/start-trusted
 GET    /agent-runs/{run_id}/tests/hidden-eval
 POST   /github/preview-pr/trusted
+POST   /benchmark-imports
+GET    /evaluation/benchmark-tasks/{task_id}/gold-patch
 ```
 
 Missing tasks, suites, or runs return 404. Delete and recreate a suite to revise its definition;
@@ -62,8 +64,10 @@ POST endpoint and this JSON body:
 
 File paths are relative to `.benchmark-hidden-eval/` in the private evaluation copy. Commands
 execute from that copy's repository root, so they can import and test the selected agent code.
-Commands without a files payload can use existing repository tests. The initial implementation
-supports text file payloads, not patch payloads. Limits are 50 commands, 16,384 characters per
+Commands without a files payload can use existing repository tests. The evaluator supports text
+file payloads, not patch execution. Benchmark imports can store disabled patch suites with
+trusted test identifier metadata; see [benchmark imports](benchmark-imports.md).
+Limits are 50 commands, 16,384 characters per
 command, 50 files, and 1,000,000 payload bytes per suite. Absolute paths, traversal, backslashes,
 Windows drives/streams, and colliding file paths are rejected.
 

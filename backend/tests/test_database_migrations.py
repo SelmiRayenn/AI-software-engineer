@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from datetime import UTC, datetime
 from pathlib import Path
 
 from alembic.autogenerate import compare_metadata
@@ -21,6 +22,11 @@ EXPECTED_TABLES = {
     "agent_runs",
     "agent_run_failures",
     "benchmark_tasks",
+    "benchmark_imports",
+    "benchmark_packs",
+    "benchmark_pack_tasks",
+    "benchmark_pack_runs",
+    "benchmark_pack_run_tasks",
     "evaluation_metrics",
     "generated_patches",
     "gold_patches",
@@ -62,6 +68,63 @@ def test_sqlalchemy_metadata_can_be_loaded() -> None:
         "regression_detected",
         "issue_specific_score",
     }.issubset(Base.metadata.tables["evaluation_metrics"].columns.keys())
+
+
+def test_pack_run_migration_preserves_existing_packs_and_roundtrips(tmp_path: Path) -> None:
+    database_url = f"sqlite:///{(tmp_path / 'pack-runs.db').as_posix()}"
+    config = make_alembic_config(database_url)
+    command.upgrade(config, "20260920_0010")
+    engine = create_engine(database_url)
+    with Session(engine) as db:
+        pack = models.BenchmarkPack(name="Existing pack", slug="existing", version="1")
+        db.add(pack)
+        db.commit()
+        pack_id = pack.id
+
+    command.upgrade(config, "head")
+    inspector = inspect(engine)
+    assert {"benchmark_pack_runs", "benchmark_pack_run_tasks"}.issubset(inspector.get_table_names())
+    with Session(engine) as db:
+        assert db.get(models.BenchmarkPack, pack_id).name == "Existing pack"
+        repository = models.Repository(
+            name="sample", owner="example", url="https://github.com/example/sample"
+        )
+        task = models.BenchmarkTask(repository=repository, issue_title="Fix", base_commit="base")
+        agent_run = models.AgentRun(
+            benchmark_task=task, model_provider="mock", model_name="mock-model"
+        )
+        db.add(agent_run)
+        db.flush()
+        pack_run = models.BenchmarkPackRun(
+            benchmark_pack_id=pack_id,
+            pack_name="Existing pack",
+            pack_slug="existing",
+            pack_version="1",
+            model_provider="mock",
+            model_name="mock-model",
+            run_config={},
+            started_at=datetime.now(UTC),
+        )
+        entry = models.BenchmarkPackRunTask(
+            pack_run=pack_run,
+            benchmark_task_id=task.id,
+            agent_run_id=agent_run.id,
+            order_index=0,
+            task_snapshot={},
+            definition_hash="a" * 64,
+        )
+        db.add(entry)
+        db.commit()
+        assert entry.created_at and entry.status == "queued"
+        assert pack_run.include_hidden_tests is False and pack_run.stop_on_task_failure is False
+        assert len(pack_run.tasks) == 1
+
+    command.downgrade(config, "20260920_0010")
+    assert "benchmark_pack_runs" not in inspect(engine).get_table_names()
+    assert "benchmark_pack_run_tasks" not in inspect(engine).get_table_names()
+    with Session(engine) as db:
+        assert db.get(models.BenchmarkPack, pack_id).slug == "existing"
+    engine.dispose()
 
 
 def test_migration_command_documentation_is_accurate() -> None:

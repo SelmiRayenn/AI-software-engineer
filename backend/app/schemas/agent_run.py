@@ -49,7 +49,7 @@ class AgentRunDetailRepository(BaseModel):
 
 class AgentRunDetailBenchmarkTask(BaseModel):
     id: UUID
-    issue_number: int
+    issue_number: int | None = None
     issue_title: str
 
 
