@@ -115,6 +115,8 @@ Initial API surfaces:
 - `POST /benchmark-tasks/from-github`
 - `POST /benchmark-tasks/{task_id}/validate`
 - `POST /benchmark-tasks/{task_id}/mark-ready`
+- `GET /benchmark-tasks/{task_id}/validation-report`
+- `GET /benchmark-packs/{pack_id}/validation-report`
 - `POST /agent-runs/{benchmark_task_id}/start`
 - `GET /agent-runs/{run_id}`
 - `GET /agent-runs/{run_id}/failure`
@@ -141,6 +143,8 @@ and keep gold patches and hidden test metadata outside agent-visible data.
 See [benchmark imports](docs/benchmark-imports.md) for setup, the record format, and result summaries.
 Tasks can be grouped into ordered, versioned benchmark packs through `/benchmark-packs`; imports
 can append newly created tasks directly to a pack. See [benchmark packs](docs/benchmark-packs.md).
+Read-only [benchmark validation reports](docs/benchmark-validation.md) expose task and pack
+readiness, reproducibility, and safety gaps without revealing trusted evaluation data.
 
 Benchmark tasks move through a small lifecycle:
 

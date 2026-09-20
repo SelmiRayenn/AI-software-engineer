@@ -3,7 +3,7 @@ from __future__ import annotations
 import uuid
 from typing import TYPE_CHECKING
 
-from sqlalchemy import Boolean, ForeignKey, Integer, String, Text, false
+from sqlalchemy import Boolean, ForeignKey, Integer, String, Text, false, text
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from sqlalchemy.types import JSON, Uuid
 
@@ -14,6 +14,7 @@ if TYPE_CHECKING:
     from app.models.agent_run import AgentRun
     from app.models.benchmark_import import BenchmarkImport
     from app.models.benchmark_pack import BenchmarkPackTask
+    from app.models.flakiness_check import FlakinessCheck
     from app.models.gold_patch import GoldPatch
     from app.models.hidden_eval_test import HiddenEvalTest
     from app.models.repository import Repository
@@ -43,6 +44,12 @@ class BenchmarkTask(UUIDPrimaryKeyMixin, CreatedAtMixin, Base):
     setup_commands: Mapped[list[str]] = mapped_column(JSON, default=list, nullable=False)
     test_commands: Mapped[list[str]] = mapped_column(JSON, default=list, nullable=False)
     notes: Mapped[str | None] = mapped_column(Text, nullable=True)
+    difficulty: Mapped[str] = mapped_column(
+        String(20), default="unknown", server_default="unknown", index=True, nullable=False
+    )
+    tags: Mapped[list[str]] = mapped_column(
+        JSON, default=list, server_default=text("'[]'"), nullable=False
+    )
     allow_lockfile_changes: Mapped[bool] = mapped_column(
         Boolean, default=False, server_default=false(), nullable=False
     )
@@ -71,4 +78,9 @@ class BenchmarkTask(UUIDPrimaryKeyMixin, CreatedAtMixin, Base):
         back_populates="benchmark_task",
         cascade="all, delete-orphan",
         order_by="HiddenEvalTest.created_at",
+    )
+    flakiness_checks: Mapped[list["FlakinessCheck"]] = relationship(
+        back_populates="benchmark_task",
+        cascade="all, delete-orphan",
+        order_by="FlakinessCheck.created_at.desc()",
     )

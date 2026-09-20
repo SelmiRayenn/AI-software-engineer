@@ -20,6 +20,8 @@ clone repositories, run commands, apply patches, or call models.
   "pass_to_pass": ["tests/test_core.py::test_division"],
   "environment_setup_commit": "abcdef0123456789abcdef0123456789abcdef01",
   "hints_text": "Optional curator context, withheld from agent prompts.",
+  "difficulty": "medium",
+  "tags": ["python", "error-handling"],
   "created_at": "2024-01-01T12:00:00Z"
 }
 ```
@@ -32,6 +34,11 @@ or `repo_url`. All other fields above are optional and may be null. An absent is
 is stored as null. Repository names use `owner/name`; URLs must be HTTPS GitHub repository
 URLs without credentials, query parameters, or subpaths. Both fields must agree when supplied.
 Names are normalized to lowercase and matching repository records are reused.
+
+`difficulty` is optional and defaults to `unknown`; accepted values are `easy`, `medium`, `hard`,
+`expert`, and `unknown`. `tags` is optional and defaults to an empty list. Tags are normalized to
+lowercase slugs, deduplicated, and limited to 25 values. When an import targets a benchmark pack,
+the imported task metadata is copied to the pack membership as the pack's initial metadata.
 
 Task IDs are case-sensitive, globally unique import identifiers (up to 255 characters using
 letters, digits, `.`, `_`, `/`, `-`, starting with a letter or digit). They are separate from

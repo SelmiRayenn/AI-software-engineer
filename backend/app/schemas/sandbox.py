@@ -1,6 +1,6 @@
 from typing import Literal
 
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 SandboxStatus = Literal[
     "passed",
@@ -13,12 +13,16 @@ SandboxStatus = Literal[
 
 
 class SandboxRunRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
     repository_url: str = Field(min_length=1, max_length=2048)
     base_commit: str = Field(min_length=7, max_length=64)
     setup_commands: list[str] = Field(default_factory=list, max_length=20)
     test_commands: list[str] = Field(min_length=1, max_length=50)
     command_timeout_seconds: int | None = Field(default=None, ge=1)
     network_enabled: bool | None = None
+    test_repetitions: int = Field(default=1, ge=1, le=20)
+    stop_on_first_test_failure: bool = False
 
     @field_validator("setup_commands", "test_commands")
     @classmethod

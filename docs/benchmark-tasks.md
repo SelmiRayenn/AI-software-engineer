@@ -115,6 +115,25 @@ Tasks can be archived from draft, ready, completed, or failed states. A failed t
 
 The `mark-ready` endpoint runs validation first. If validation fails, the endpoint returns the validation result and leaves the task unchanged.
 
+## Difficulty and Tags
+
+Every task has a canonical difficulty and a set of tags. Difficulty is one of `easy`, `medium`,
+`hard`, `expert`, or `unknown` (the default until curated). Tags are normalized lowercase slugs,
+such as `python`, `parser`, or `api-fix`; duplicates are removed and a task may have at most 25.
+
+```text
+PATCH /benchmark-tasks/{task_id}/metadata
+GET /benchmark-tasks/tags
+GET /benchmark-tasks?difficulty=hard&tag=python
+```
+
+The versioned task list supports the same filters at `GET /api/v1/benchmark-tasks`. Difficulty
+and tags are safe agent-visible task metadata. They do not reveal gold patch content, hidden test
+files, PR details, or evaluator-only data.
+
+Pack membership can provide a pack-specific difficulty or tag override for a curated pack. When
+no override is recorded, pack summaries and task listings use the task-level metadata.
+
 Tasks created through [benchmark imports](benchmark-imports.md) may omit issue and PR numbers.
 Their import provenance replaces those two requirements; configured tests, a base commit,
 repository validity and gold data are still required for readiness.

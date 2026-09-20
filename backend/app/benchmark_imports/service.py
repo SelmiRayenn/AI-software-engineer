@@ -197,6 +197,8 @@ class BenchmarkImportService:
             status="draft",
             setup_commands=[],
             test_commands=[],
+            difficulty=record.difficulty,
+            tags=record.tags,
         )
         self._db.add(task)
         self._db.flush()
@@ -248,8 +250,8 @@ class BenchmarkImportService:
                     benchmark_pack_id=pack_id,
                     benchmark_task_id=task.id,
                     order_index=pack_order,
-                    difficulty=None,
-                    tags=[],
+                    difficulty=record.difficulty,
+                    tags=record.tags,
                 )
             )
         self._db.flush()

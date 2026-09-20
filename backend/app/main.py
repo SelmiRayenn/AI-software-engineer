@@ -18,6 +18,8 @@ from app.api.routes.benchmark_packs import router as benchmark_packs_router
 from app.api.routes.benchmark_task_ingestion import evaluation_router
 from app.api.routes.benchmark_task_ingestion import router as benchmark_task_ingestion_router
 from app.api.routes.benchmark_tasks import router as benchmark_tasks_router
+from app.api.routes.benchmark_validation import router as benchmark_validation_router
+from app.api.routes.flakiness_checks import router as flakiness_checks_router
 from app.api.routes.github import router as github_router
 from app.api.routes.health import router as health_router
 from app.api.routes.hidden_eval_tests import router as hidden_eval_tests_router
@@ -56,6 +58,7 @@ def create_app() -> FastAPI:
     app.include_router(health_router)
     app.include_router(repositories_router, prefix="/api/v1")
     app.include_router(benchmark_tasks_router, prefix="/api/v1")
+    app.include_router(benchmark_tasks_router)
     app.include_router(agent_runs_router, prefix="/api/v1")
     app.include_router(sandbox_router)
     app.include_router(agent_run_details_router)
@@ -69,9 +72,11 @@ def create_app() -> FastAPI:
     app.include_router(patch_reviews_router)
     app.include_router(patch_quality_router)
     app.include_router(hidden_eval_tests_router)
+    app.include_router(flakiness_checks_router)
     app.include_router(benchmark_imports_router)
     app.include_router(benchmark_packs_router)
     app.include_router(benchmark_pack_runs_router)
+    app.include_router(benchmark_validation_router)
     app.include_router(github_router)
     app.include_router(benchmark_task_ingestion_router)
     app.include_router(evaluation_router)

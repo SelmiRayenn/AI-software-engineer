@@ -40,6 +40,8 @@ EXPECTED_TABLES = {
     "indexed_chunks",
     "chunk_embeddings",
     "patch_qualities",
+    "flakiness_checks",
+    "flakiness_check_runs",
 }
 
 
@@ -58,6 +60,13 @@ def test_sqlalchemy_metadata_can_be_loaded() -> None:
     assert "workspace_path" in Base.metadata.tables["agent_runs"].columns
     assert "allow_lockfile_changes" in Base.metadata.tables["benchmark_tasks"].columns
     assert "allow_dependency_file_changes" in Base.metadata.tables["benchmark_tasks"].columns
+    assert {"difficulty", "tags"}.issubset(Base.metadata.tables["benchmark_tasks"].columns.keys())
+    assert {
+        "repetitions_requested",
+        "inconsistent_results",
+        "average_duration_seconds",
+        "workspace_retained",
+    }.issubset(Base.metadata.tables["flakiness_checks"].columns.keys())
     assert {
         "baseline_tests_passed",
         "post_patch_tests_passed",
@@ -127,6 +136,25 @@ def test_pack_run_migration_preserves_existing_packs_and_roundtrips(tmp_path: Pa
     engine.dispose()
 
 
+def test_flakiness_migration_upgrades_and_downgrades_task_metadata(tmp_path: Path) -> None:
+    database_url = f"sqlite:///{(tmp_path / 'flakiness.db').as_posix()}"
+    config = make_alembic_config(database_url)
+    command.upgrade(config, "20260920_0012")
+    engine = create_engine(database_url)
+
+    command.upgrade(config, "head")
+
+    inspector = inspect(engine)
+    assert {"flakiness_checks", "flakiness_check_runs"}.issubset(inspector.get_table_names())
+    assert {"status", "pass_count", "fail_count", "setup_results"}.issubset(
+        _column_names(inspector, "flakiness_checks")
+    )
+    command.downgrade(config, "20260920_0012")
+    assert "flakiness_checks" not in inspect(engine).get_table_names()
+    assert "difficulty" in _column_names(inspect(engine), "benchmark_tasks")
+    engine.dispose()
+
+
 def test_migration_command_documentation_is_accurate() -> None:
     docs = (REPO_ROOT / "docs" / "database-migrations.md").read_text(encoding="utf-8")
     backend_readme = (BACKEND_ROOT / "README.md").read_text(encoding="utf-8")
@@ -163,6 +191,7 @@ def test_initial_migration_upgrades_empty_sqlite_database(tmp_path: Path) -> Non
     assert "pull_request_number" in _column_names(inspector, "benchmark_tasks")
     assert "workspace_id" in _column_names(inspector, "agent_runs")
     assert "workspace_path" in _column_names(inspector, "agent_runs")
+    assert {"difficulty", "tags"}.issubset(_column_names(inspector, "benchmark_tasks"))
     with engine.connect() as connection:
         assert compare_metadata(MigrationContext.configure(connection), Base.metadata) == []
     engine.dispose()

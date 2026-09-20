@@ -24,7 +24,8 @@ a {
 
 button,
 input,
-textarea {
+textarea,
+select {
   font: inherit;
 }
 
@@ -504,7 +505,8 @@ td span {
 }
 
 input,
-textarea {
+textarea,
+select {
   width: 100%;
   padding: 10px 12px;
   border: 1px solid #cad4df;
@@ -512,6 +514,46 @@ textarea {
   background: #ffffff;
   color: #17202a;
 }
+
+.task-filters,
+.tag-list {
+  display: flex;
+  align-items: end;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+.task-filters label {
+  display: grid;
+  gap: 6px;
+  min-width: 180px;
+  color: #607086;
+  font-size: 12px;
+  font-weight: 800;
+  text-transform: uppercase;
+}
+
+.difficulty-label,
+.tag-label {
+  display: inline-flex;
+  align-items: center;
+  min-height: 26px;
+  padding: 3px 7px;
+  border: 1px solid #d2dae5;
+  border-radius: 6px;
+  background: #f3f6fa;
+  color: #344255;
+  font-size: 12px;
+  font-weight: 800;
+  text-transform: capitalize;
+}
+
+.tag-label {
+  text-transform: none;
+}
+
+.difficulty-easy { border-color: #b7ead0; background: #e8fff3; color: #11633d; }
+.difficulty-hard, .difficulty-expert { border-color: #f4c1c1; background: #fff0f0; color: #9f1d1d; }
 
 .button-row {
   justify-content: flex-start;

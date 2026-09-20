@@ -162,7 +162,7 @@ def test_add_remove_tasks_ordering_and_summary(client: TestClient, db: Session) 
         "task_count": 3,
         "ready_task_count": 2,
         "repositories_represented": ["org/alpha", "org/beta"],
-        "difficulty_distribution": {"easy": 1, "hard": 1, "unspecified": 1},
+        "difficulty_distribution": {"easy": 1, "hard": 1, "unknown": 1},
         "tags": ["api", "parser", "python"],
     }
     assert "patch_text" not in json.dumps(detail)
@@ -234,7 +234,7 @@ def test_import_assigns_only_successful_new_tasks_to_pack_in_source_order(
     assert [task["order_index"] for task in detail["tasks"]] == [7, 8, 9]
     imported_ids = response.json()["created_task_ids"]
     assert [task["benchmark_task_id"] for task in detail["tasks"][1:]] == imported_ids
-    assert all(task["difficulty"] is None and task["tags"] == [] for task in detail["tasks"][1:])
+    assert all(task["difficulty"] == "unknown" and task["tags"] == [] for task in detail["tasks"][1:])
     assert db.scalars(
         select(BenchmarkPackTask).where(BenchmarkPackTask.benchmark_pack_id == UUID(pack["id"]))
     ).all()

@@ -28,8 +28,23 @@ export async function listRepositories(): Promise<Repository[]> {
   return requestJson<Repository[]>("/api/v1/repositories");
 }
 
-export async function listBenchmarkTasks(): Promise<BenchmarkTask[]> {
-  return requestJson<BenchmarkTask[]>("/api/v1/benchmark-tasks");
+export interface BenchmarkTaskFilters {
+  difficulty?: string;
+  tag?: string;
+}
+
+export async function listBenchmarkTasks(
+  filters: BenchmarkTaskFilters = {},
+): Promise<BenchmarkTask[]> {
+  const params = new URLSearchParams();
+  if (filters.difficulty) params.set("difficulty", filters.difficulty);
+  if (filters.tag) params.set("tag", filters.tag);
+  const query = params.size ? `?${params.toString()}` : "";
+  return requestJson<BenchmarkTask[]>(`/api/v1/benchmark-tasks${query}`);
+}
+
+export async function listBenchmarkTaskTags(): Promise<string[]> {
+  return requestJson<string[]>("/benchmark-tasks/tags");
 }
 
 export async function listAgentRuns(): Promise<AgentRun[]> {

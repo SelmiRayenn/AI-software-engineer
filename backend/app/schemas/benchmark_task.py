@@ -3,6 +3,7 @@ from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
+from app.core.task_metadata import TaskDifficulty, normalize_difficulty, normalize_tags
 from app.core.task_statuses import VALID_TASK_STATUSES
 from app.schemas.repository import RepositoryRead
 
@@ -20,6 +21,8 @@ class BenchmarkTaskBase(BaseModel):
     setup_commands: list[str] = Field(default_factory=list)
     test_commands: list[str] = Field(default_factory=list)
     notes: str | None = None
+    difficulty: TaskDifficulty = "unknown"
+    tags: list[str] = Field(default_factory=list, max_length=25)
     allow_lockfile_changes: bool = False
     allow_dependency_file_changes: bool = False
     status: str = "draft"
@@ -31,6 +34,16 @@ class BenchmarkTaskBase(BaseModel):
             allowed = ", ".join(sorted(VALID_TASK_STATUSES))
             raise ValueError(f"Task status must be one of: {allowed}")
         return status
+
+    @field_validator("difficulty", mode="before")
+    @classmethod
+    def validate_difficulty(cls, value: str) -> str:
+        return normalize_difficulty(value)
+
+    @field_validator("tags")
+    @classmethod
+    def validate_tags(cls, value: list[str]) -> list[str]:
+        return normalize_tags(value)
 
 
 class BenchmarkTaskCreate(BenchmarkTaskBase):
@@ -85,8 +98,27 @@ class AgentVisibleBenchmarkTaskRead(BaseModel):
     issue_body: str | None = None
     issue_comments: list[AgentVisibleIssueComment] = Field(default_factory=list)
     base_commit: str
+    difficulty: TaskDifficulty
+    tags: list[str] = Field(default_factory=list)
     status: str
     created_at: datetime
+
+
+class BenchmarkTaskMetadataUpdate(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    difficulty: TaskDifficulty | None = None
+    tags: list[str] | None = Field(default=None, max_length=25)
+
+    @field_validator("difficulty", mode="before")
+    @classmethod
+    def validate_difficulty(cls, value: str | None) -> str | None:
+        return normalize_difficulty(value) if value is not None else None
+
+    @field_validator("tags")
+    @classmethod
+    def validate_tags(cls, value: list[str] | None) -> list[str] | None:
+        return normalize_tags(value) if value is not None else None
 
 
 class BenchmarkTaskValidationResult(BaseModel):

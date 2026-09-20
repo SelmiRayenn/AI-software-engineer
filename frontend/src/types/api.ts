@@ -38,6 +38,8 @@ export interface BenchmarkTask {
   issue_title: string;
   issue_body: string | null;
   base_commit: string;
+  difficulty: "easy" | "medium" | "hard" | "expert" | "unknown";
+  tags: string[];
   status: string;
   created_at: string;
 }

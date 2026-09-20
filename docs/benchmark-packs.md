@@ -5,6 +5,11 @@ human-readable name, stable slug, description, version and source. Its task memb
 explicit order plus optional difficulty and tags, so clients can rerun the same ordered selection
 and compare model results consistently.
 
+Pack task metadata is optional and acts as a pack-specific override. When a membership has no
+difficulty or tags, the pack uses the canonical task-level difficulty and tags for its summary and
+task list. Imports copy their task metadata into a selected pack so the imported roster remains
+reproducible.
+
 Changing source tasks after adding them changes what the pack runs. For strict published-dataset
 reproducibility, create a new pack slug/version after task definitions are verified and avoid
 editing those tasks. Pack versioning is curator-managed; the API does not infer semantic versions
@@ -74,11 +79,27 @@ Every create, list, and detail response includes:
 - `task_count`: all task memberships.
 - `ready_task_count`: memberships whose current task status is `ready`.
 - `repositories_represented`: sorted unique `owner/name` repository identifiers.
-- `difficulty_distribution`: counts by normalized difficulty; missing values use `unspecified`.
-- `tags`: sorted unique tags across all memberships.
+- `difficulty_distribution`: counts by the membership override when present, otherwise by the
+  canonical task difficulty. Uncurated tasks are reported as `unknown`.
+- `tags`: sorted unique tags across membership overrides or, when no override exists, task tags.
 
 Summary fields are calculated from current task and membership records on every read. A task status
 transition can therefore change `ready_task_count` without modifying the pack.
+
+## Validation Reports
+
+Before running or publishing a pack, inspect its dataset-quality report:
+
+```http
+GET /benchmark-packs/{pack_id}/validation-report
+```
+
+The report includes ready/draft/failed/archived counts, repository and command checks, order-index
+consistency, difficulty/tag coverage, enabled hidden-test coverage, severity counts, and an overall
+`ready`, `warning`, or `blocked` verdict. It is read-only and does not reveal gold or hidden-test
+data. Individual tasks have the corresponding
+`GET /benchmark-tasks/{task_id}/validation-report` endpoint. See
+[benchmark validation reports](benchmark-validation.md) for report semantics and limitations.
 
 ## Import Into a Pack
 
@@ -95,8 +116,9 @@ python ../scripts/import_benchmark_tasks.py tasks.jsonl --pack-id PACK_UUID
 
 New tasks append after the pack's highest existing order index. If the pack is empty, ordering
 starts at 0. Successfully imported rows keep source order. Invalid and duplicate rows do not create
-memberships or consume order positions. Imported memberships have no difficulty and no tags; add
-curated metadata later by constructing the pack through the membership API before publication.
+memberships or consume order positions. Imported task difficulty and tags are copied to the new
+membership as its initial metadata; curators can still override those values through the membership
+API before publication.
 
 Task creation, trusted data storage and pack membership are committed as one row-level transaction.
 A failed row leaves neither a task nor membership. An unknown pack returns a document-level

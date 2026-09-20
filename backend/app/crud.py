@@ -51,14 +51,20 @@ def get_gold_patch_for_task(db: Session, task_id: UUID) -> GoldPatch | None:
 def list_benchmark_tasks(
     db: Session,
     repository_id: UUID | None = None,
+    difficulty: str | None = None,
+    tag: str | None = None,
     skip: int = 0,
     limit: int = 100,
 ) -> list[BenchmarkTask]:
     statement = select(BenchmarkTask).order_by(BenchmarkTask.created_at.desc())
     if repository_id is not None:
         statement = statement.where(BenchmarkTask.repository_id == repository_id)
-    statement = statement.offset(skip).limit(limit)
-    return list(db.scalars(statement).all())
+    if difficulty is not None:
+        statement = statement.where(BenchmarkTask.difficulty == difficulty)
+    tasks = list(db.scalars(statement).all())
+    if tag is not None:
+        tasks = [task for task in tasks if tag in task.tags]
+    return tasks[skip : skip + limit]
 
 
 def create_agent_run(db: Session, run_in: AgentRunCreate) -> AgentRun:

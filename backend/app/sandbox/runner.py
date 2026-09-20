@@ -149,15 +149,22 @@ class DockerSandboxRunner:
                         )
                         return response
 
-                for command in request.test_commands:
-                    result = self._run_container_command(
-                        container=container,
-                        command=command,
-                        phase="test",
-                        timeout_seconds=command_timeout,
-                    )
-                    test_results.append(result)
-                    if result.timed_out:
+                stop_tests = False
+                for _ in range(request.test_repetitions):
+                    for command in request.test_commands:
+                        result = self._run_container_command(
+                            container=container,
+                            command=command,
+                            phase="test",
+                            timeout_seconds=command_timeout,
+                        )
+                        test_results.append(result)
+                        if result.timed_out or (
+                            request.stop_on_first_test_failure and not result.passed
+                        ):
+                            stop_tests = True
+                            break
+                    if stop_tests:
                         break
 
                 status = (

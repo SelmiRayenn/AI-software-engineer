@@ -117,3 +117,24 @@ No post-patch commands means untested, not passing. Test history stays available
 - The active workspace must still exist.
 - The current implementation runs configured commands in the prepared workspace process context.
   Deeper Docker lifecycle integration is still planned.
+
+## Baseline Flakiness Checks
+
+```text
+POST /benchmark-tasks/{task_id}/flakiness-check
+GET  /benchmark-tasks/{task_id}/flakiness-checks
+```
+
+The POST body accepts `repetitions` (default 3, range 2-20), `stop_on_first_failure`, and an
+optional `command_timeout_seconds`. It does not accept command text. The service clones the task's
+repository at `base_commit`, runs configured setup commands once, then executes the configured test
+commands for each repetition. It uses the Docker sandbox's memory, CPU, privilege, timeout, output
+capture, workspace-root, and retention controls.
+
+Each check stores aggregate pass/fail counts, inconsistency, average repetition duration, setup
+results, workspace retention state, and a row for each completed repetition. `stable` means every
+completed repetition had the same outcome, including consistently failing tests; use the pass/fail
+counts to distinguish a healthy baseline from a consistently broken one. `flaky` means both passing
+and failing repetitions were observed. Clone, checkout, Docker, or empty-result failures are
+`inconclusive`, as is an early stop before enough consistent repetitions complete. Setup failure is
+`failed_setup`.

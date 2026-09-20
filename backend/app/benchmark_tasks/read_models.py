@@ -15,6 +15,8 @@ def to_agent_visible_task(
         issue_body=task.issue_body,
         issue_comments=task.issue_comments,
         base_commit=task.base_commit,
+        difficulty=task.difficulty,
+        tags=task.tags,
         status=task.status,
         created_at=task.created_at,
     )

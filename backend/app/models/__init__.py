@@ -6,6 +6,7 @@ from app.models.benchmark_pack import BenchmarkPack, BenchmarkPackTask
 from app.models.benchmark_pack_run import BenchmarkPackRun, BenchmarkPackRunTask
 from app.models.benchmark_task import BenchmarkTask
 from app.models.evaluation_metric import EvaluationMetric
+from app.models.flakiness_check import FlakinessCheck, FlakinessCheckRun
 from app.models.generated_patch import GeneratedPatch
 from app.models.gold_patch import GoldPatch
 from app.models.hidden_eval_test import HiddenEvalTest
@@ -33,6 +34,8 @@ __all__ = [
     "BenchmarkTask",
     "ChunkEmbedding",
     "EvaluationMetric",
+    "FlakinessCheck",
+    "FlakinessCheckRun",
     "GeneratedPatch",
     "GoldPatch",
     "HiddenEvalTest",

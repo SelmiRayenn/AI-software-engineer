@@ -6,6 +6,8 @@ from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
+from app.core.task_metadata import TaskDifficulty, normalize_difficulty, normalize_tags
+
 SLUG_PATTERN = re.compile(r"^[a-z0-9]+(?:-[a-z0-9]+)*$")
 
 
@@ -48,30 +50,20 @@ class BenchmarkPackTaskCreate(BaseModel):
 
     benchmark_task_id: UUID
     order_index: int = Field(ge=0)
-    difficulty: str | None = Field(default=None, max_length=100)
-    tags: list[str] = Field(default_factory=list, max_length=50)
+    difficulty: TaskDifficulty | None = None
+    tags: list[str] = Field(default_factory=list, max_length=25)
 
-    @field_validator("difficulty")
+    @field_validator("difficulty", mode="before")
     @classmethod
     def normalize_difficulty(cls, value: str | None) -> str | None:
         if value is None:
             return None
-        value = value.strip().lower()
-        return value or None
+        return normalize_difficulty(value)
 
     @field_validator("tags")
     @classmethod
     def normalize_tags(cls, values: list[str]) -> list[str]:
-        tags: list[str] = []
-        seen: set[str] = set()
-        for value in values:
-            tag = value.strip().lower()
-            if not tag or len(tag) > 100:
-                raise ValueError("Tags must be nonblank and at most 100 characters.")
-            if tag not in seen:
-                tags.append(tag)
-                seen.add(tag)
-        return tags
+        return normalize_tags(values)
 
 
 class BenchmarkPackSummary(BaseModel):

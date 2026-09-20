@@ -6,6 +6,8 @@ from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
+from app.core.task_metadata import TaskDifficulty, normalize_difficulty, normalize_tags
+
 MAX_IMPORT_BYTES = 20 * 1024 * 1024
 MAX_IMPORT_ROWS = 10_000
 MAX_PATCH_CHARS = 1_000_000
@@ -29,6 +31,8 @@ class BenchmarkImportTask(BaseModel):
     pass_to_pass: list[TestIdentifier] | None = Field(default=None, max_length=10_000)
     environment_setup_commit: str | None = Field(default=None, min_length=1, max_length=64)
     hints_text: str | None = Field(default=None, max_length=500_000)
+    difficulty: TaskDifficulty = "unknown"
+    tags: list[str] = Field(default_factory=list, max_length=25)
     created_at: datetime | None = None
 
     @field_validator(
@@ -64,6 +68,16 @@ class BenchmarkImportTask(BaseModel):
         if value is not None and any(not item.strip() for item in value):
             raise ValueError("Test identifiers must not be blank.")
         return value
+
+    @field_validator("difficulty", mode="before")
+    @classmethod
+    def normalize_difficulty_field(cls, value: str) -> str:
+        return normalize_difficulty(value)
+
+    @field_validator("tags")
+    @classmethod
+    def normalize_tags_field(cls, value: list[str]) -> list[str]:
+        return normalize_tags(value)
 
     @model_validator(mode="after")
     def normalize_repository(self) -> "BenchmarkImportTask":

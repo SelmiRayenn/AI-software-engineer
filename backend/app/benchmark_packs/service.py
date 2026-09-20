@@ -133,7 +133,7 @@ class BenchmarkPackService:
 
 
 def _pack_summary(memberships: list[BenchmarkPackTask]) -> BenchmarkPackSummary:
-    difficulty = Counter(item.difficulty or "unspecified" for item in memberships)
+    difficulty = Counter(_effective_difficulty(item) for item in memberships)
     repositories = sorted(
         {
             f"{item.benchmark_task.repository.owner}/{item.benchmark_task.repository.name}"
@@ -145,7 +145,7 @@ def _pack_summary(memberships: list[BenchmarkPackTask]) -> BenchmarkPackSummary:
         ready_task_count=sum(item.benchmark_task.status == "ready" for item in memberships),
         repositories_represented=repositories,
         difficulty_distribution=dict(sorted(difficulty.items())),
-        tags=sorted({tag for item in memberships for tag in item.tags}),
+        tags=sorted({tag for item in memberships for tag in _effective_tags(item)}),
     )
 
 
@@ -153,11 +153,19 @@ def _membership_read(membership: BenchmarkPackTask, task: BenchmarkTask) -> Benc
     return BenchmarkPackTaskRead(
         benchmark_task_id=task.id,
         order_index=membership.order_index,
-        difficulty=membership.difficulty,
-        tags=membership.tags,
+        difficulty=_effective_difficulty(membership),
+        tags=_effective_tags(membership),
         created_at=membership.created_at,
         issue_number=task.issue_number,
         issue_title=task.issue_title,
         task_status=task.status,
         repository=f"{task.repository.owner}/{task.repository.name}",
     )
+
+
+def _effective_difficulty(membership: BenchmarkPackTask) -> str:
+    return membership.difficulty or membership.benchmark_task.difficulty
+
+
+def _effective_tags(membership: BenchmarkPackTask) -> list[str]:
+    return membership.tags or membership.benchmark_task.tags

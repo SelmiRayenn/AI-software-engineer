@@ -172,6 +172,37 @@ def test_container_is_created_with_resource_and_privilege_limits(
     assert create_kwargs["cap_drop"] == ["ALL"]
 
 
+def test_runner_repeats_tests_and_stops_after_first_failure(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    container = SequencedContainer([0, 1, 0])
+    fake_client = FakeDockerClient(container)
+    runner = DockerSandboxRunner(
+        workspace_manager=SandboxWorkspaceManager(
+            workspace_root=tmp_path, retain_workspaces=False
+        )
+    )
+    monkeypatch.setattr(runner, "_run_host_command", successful_host_command)
+    monkeypatch.setattr(runner, "_repo_archive", lambda repo_path: b"archive")
+    monkeypatch.setattr("app.sandbox.runner.docker.from_env", lambda: fake_client)
+
+    response = runner.run(
+        SandboxRunRequest(
+            repository_url="https://github.com/example/project",
+            base_commit="1111111",
+            setup_commands=[],
+            test_commands=["pytest"],
+            test_repetitions=3,
+            stop_on_first_test_failure=True,
+        )
+    )
+
+    assert response.status == "tests_failed"
+    assert [result.passed for result in response.test_results] == [True, False]
+    assert container.exec_count == 2
+
+
 def test_host_command_timeout_is_enforced(tmp_path: Path) -> None:
     runner = DockerSandboxRunner(
         workspace_manager=SandboxWorkspaceManager(workspace_root=tmp_path, retain_workspaces=True)
@@ -232,9 +263,9 @@ def fake_git_command(args: list[str], *, cwd: Path, timeout_seconds: int) -> Non
 
 
 class FakeDockerClient:
-    def __init__(self) -> None:
+    def __init__(self, container=None) -> None:
         self.images = FakeImages()
-        self.containers = FakeContainers()
+        self.containers = FakeContainers(container)
 
     def ping(self) -> bool:
         return True
@@ -246,12 +277,13 @@ class FakeImages:
 
 
 class FakeContainers:
-    def __init__(self) -> None:
+    def __init__(self, container=None) -> None:
         self.create_kwargs: dict[str, object] = {}
+        self.container = container or FakeContainer()
 
     def create(self, **kwargs):
         self.create_kwargs = kwargs
-        return FakeContainer()
+        return self.container
 
 
 class FakeExecResult:
@@ -272,3 +304,19 @@ class FakeContainer:
 
     def remove(self, *, force: bool) -> None:
         del force
+
+
+class SequencedContainer(FakeContainer):
+    def __init__(self, exit_codes: list[int]) -> None:
+        self.exit_codes = exit_codes
+        self.exec_count = 0
+
+    def exec_run(self, *args, **kwargs):
+        del args, kwargs
+        exit_code = self.exit_codes[self.exec_count]
+        self.exec_count += 1
+        return type(
+            "SequencedExecResult",
+            (),
+            {"exit_code": exit_code, "output": (b"ok\n", b"" if exit_code == 0 else b"failed")},
+        )()
