@@ -1,5 +1,7 @@
 export type RouteState =
   | { name: "overview"; path: string }
+  | { name: "analytics"; path: string }
+  | { name: "leaderboard"; path: string }
   | { name: "tasks"; path: string }
   | { name: "runs"; path: string }
   | { name: "run-detail"; path: string; runId: string };
@@ -8,6 +10,12 @@ export function parseRoute(pathname: string): RouteState {
   const parts = pathname.split("/").filter(Boolean);
   if (parts.length === 0) {
     return { name: "overview", path: "/" };
+  }
+  if (parts[0] === "analytics") {
+    return { name: "analytics", path: "/analytics" };
+  }
+  if (parts[0] === "leaderboard") {
+    return { name: "leaderboard", path: "/leaderboard" };
   }
   if (parts[0] === "tasks") {
     return { name: "tasks", path: "/tasks" };

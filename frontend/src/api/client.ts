@@ -2,13 +2,18 @@ import { apiBaseUrl } from "./config";
 import type {
   AgentRun,
   AgentRunDetail,
+  AnalyticsSummary,
   ApiErrorPayload,
+  BenchmarkPack,
   BenchmarkTask,
   EvaluationMetric,
   GeneratedPatch,
+  ModelLeaderboardRow,
+  PackAnalytics,
   PatchReview,
   PatchReviewRequest,
   Repository,
+  RepositoryAnalytics,
   TestResult,
   UUID,
 } from "../types/api";
@@ -49,6 +54,53 @@ export async function listBenchmarkTaskTags(): Promise<string[]> {
 
 export async function listAgentRuns(): Promise<AgentRun[]> {
   return requestJson<AgentRun[]>("/api/v1/agent-runs");
+}
+
+export async function listBenchmarkPacks(): Promise<BenchmarkPack[]> {
+  return requestJson<BenchmarkPack[]>("/benchmark-packs");
+}
+
+export interface AnalyticsFilters {
+  benchmarkPackId?: UUID;
+  repositoryId?: UUID;
+  modelProvider?: string;
+  modelName?: string;
+  dateFrom?: string;
+  dateTo?: string;
+}
+
+export interface ModelLeaderboardFilters
+  extends Omit<AnalyticsFilters, "modelProvider" | "modelName"> {
+  minRuns?: number;
+}
+
+export async function getAnalyticsSummary(
+  filters: AnalyticsFilters = {},
+): Promise<AnalyticsSummary> {
+  return requestJson<AnalyticsSummary>(`/analytics/summary${analyticsQuery(filters)}`);
+}
+
+export async function getAnalyticsByRepository(
+  filters: AnalyticsFilters = {},
+): Promise<RepositoryAnalytics[]> {
+  return requestJson<RepositoryAnalytics[]>(
+    `/analytics/by-repository${analyticsQuery(filters)}`,
+  );
+}
+
+export async function getAnalyticsByPack(
+  filters: AnalyticsFilters = {},
+): Promise<PackAnalytics[]> {
+  return requestJson<PackAnalytics[]>(`/analytics/by-pack${analyticsQuery(filters)}`);
+}
+
+export async function getModelLeaderboard(
+  filters: ModelLeaderboardFilters = {},
+): Promise<ModelLeaderboardRow[]> {
+  const params = analyticsParams(filters);
+  if (filters.minRuns !== undefined) params.set("min_runs", String(filters.minRuns));
+  const query = params.size ? `?${params.toString()}` : "";
+  return requestJson<ModelLeaderboardRow[]>(`/analytics/model-leaderboard${query}`);
 }
 
 export async function getAgentRunDetails(runId: UUID): Promise<AgentRunDetail> {
@@ -100,6 +152,22 @@ async function requestNullable<T>(path: string): Promise<T | null> {
     }
     throw error;
   }
+}
+
+function analyticsQuery(filters: AnalyticsFilters): string {
+  const params = analyticsParams(filters);
+  return params.size ? `?${params.toString()}` : "";
+}
+
+function analyticsParams(filters: AnalyticsFilters): URLSearchParams {
+  const params = new URLSearchParams();
+  if (filters.benchmarkPackId) params.set("benchmark_pack_id", filters.benchmarkPackId);
+  if (filters.repositoryId) params.set("repository_id", filters.repositoryId);
+  if (filters.modelProvider) params.set("model_provider", filters.modelProvider);
+  if (filters.modelName) params.set("model_name", filters.modelName);
+  if (filters.dateFrom) params.set("date_from", filters.dateFrom);
+  if (filters.dateTo) params.set("date_to", filters.dateTo);
+  return params;
 }
 
 async function requestJson<T>(path: string, init: RequestInit = {}): Promise<T> {

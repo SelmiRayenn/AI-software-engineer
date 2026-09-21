@@ -74,6 +74,11 @@ output using `run_id`. Human approval is still required before any future public
 
 ## Ranking and Totals
 
+For cross-task and cross-comparison ranking, use `GET /analytics/model-leaderboard`. It groups all
+matching AgentRuns by provider/model configuration and provides explainable performance, cost,
+speed, localization, and composite ranks. See [aggregate analytics](analytics.md#model-leaderboard)
+for filters, tie behavior, and the composite formula.
+
 A passing candidate must have `status=completed`, `patch_applied=true`, and `tests_passed=true`.
 This excludes failed runs, untested runs, empty/no-op patches, and unapplied patches.
 

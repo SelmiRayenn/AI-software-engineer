@@ -9,6 +9,8 @@ interface AppLayoutProps {
 
 const navItems = [
   { label: "Overview", path: "/" },
+  { label: "Analytics", path: "/analytics" },
+  { label: "Leaderboard", path: "/leaderboard" },
   { label: "Benchmark Tasks", path: "/tasks" },
   { label: "Agent Runs", path: "/runs" },
 ];
@@ -51,6 +53,12 @@ function isActive(route: RouteState, path: string): boolean {
   }
   if (path === "/tasks") {
     return route.name === "tasks";
+  }
+  if (path === "/analytics") {
+    return route.name === "analytics";
+  }
+  if (path === "/leaderboard") {
+    return route.name === "leaderboard";
   }
   if (path === "/runs") {
     return route.name === "runs" || route.name === "run-detail";

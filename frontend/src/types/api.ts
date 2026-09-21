@@ -203,6 +203,83 @@ export interface PatchReviewRequest {
   update_existing?: boolean;
 }
 
+export interface BenchmarkPackSummary {
+  task_count: number;
+  ready_task_count: number;
+  repositories_represented: string[];
+  difficulty_distribution: Record<string, number>;
+  tags: string[];
+}
+
+export interface BenchmarkPack {
+  id: UUID;
+  name: string;
+  slug: string;
+  description: string | null;
+  version: string;
+  source: string | null;
+  created_at: string;
+  summary: BenchmarkPackSummary;
+}
+
+export interface AnalyticsSummary {
+  total_runs: number;
+  completed_runs: number;
+  failed_runs: number;
+  approved_patches: number;
+  rejected_patches: number;
+  patch_apply_rate: number;
+  visible_test_pass_rate: number;
+  hidden_test_pass_rate: number | null;
+  issue_resolved_rate: number;
+  regression_rate: number;
+  average_file_localization_score: number;
+  average_issue_specific_score: number;
+  average_modified_files_count: number;
+  average_unrelated_files_count: number;
+  total_tokens: number;
+  total_cost: number;
+  average_cost_per_run: number;
+  average_execution_time_seconds: number;
+}
+
+export interface RepositoryAnalytics extends AnalyticsSummary {
+  repository_id: UUID;
+  repository_owner: string;
+  repository_name: string;
+  repository_url: string;
+}
+
+export interface PackAnalytics extends AnalyticsSummary {
+  benchmark_pack_id: UUID;
+  pack_name: string;
+  pack_slug: string;
+  pack_version: string;
+}
+
+export interface ModelLeaderboardRow {
+  model_provider: string;
+  model_name: string;
+  total_runs: number;
+  completed_runs: number;
+  failed_runs: number;
+  issue_resolved_rate: number;
+  visible_test_pass_rate: number;
+  hidden_test_pass_rate: number | null;
+  average_file_localization_score: number;
+  average_issue_specific_score: number;
+  average_cost_per_run: number;
+  average_tokens_per_run: number;
+  average_execution_time_seconds: number;
+  average_modified_files_count: number;
+  average_unrelated_files_count: number;
+  rank_by_issue_resolved: number;
+  rank_by_cost: number;
+  rank_by_speed: number;
+  rank_by_localization: number;
+  composite_score: number;
+}
+
 export interface ApiErrorPayload {
   detail?: unknown;
 }

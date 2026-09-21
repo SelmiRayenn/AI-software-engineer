@@ -24,6 +24,24 @@ VITE_API_BASE_URL=http://localhost:8000 npm run dev
 - Benchmark tasks: historical issue tasks with repository, lifecycle status, and base commit context.
 - Agent runs: run history with model, execution status, duration, and patch review state.
 - Agent run detail: issue context, generated patch diff, changed files, grouped test logs, evaluation metrics, and human approval controls.
+- Analytics: aggregate run counts, patch/test/issue rates, localization, cost, runtime, and
+  repository/benchmark-pack breakdowns.
+- Model leaderboard: provider/model performance with issue and test success, localization,
+  efficiency metrics, composite score, and independent rank badges.
+
+## Analytics Views
+
+Open `/analytics` for the aggregate view or `/leaderboard` for model rankings. Both views provide
+repository and benchmark-pack filters. The provider filter is sent to the aggregate analytics API
+and applied to the loaded leaderboard rows on the leaderboard page.
+
+Hidden-test pass rate displays `N/A` when no hidden evaluation was executed. This is distinct from
+a measured 0% pass rate. Repository and pack sections use the backend's pack-run provenance, so a
+task's current membership does not attribute unrelated runs to a pack.
+
+The leaderboard is ordered by the backend composite score and displays issue-resolution, cost,
+speed, and localization ranks. Exact ties can therefore share rank badges. The score formula and
+rate denominators are documented in [aggregate analytics](analytics.md#model-leaderboard).
 
 ## Agent Run Review Flow
 
@@ -41,7 +59,8 @@ Approved patches become eligible for a future export or pull request creation fl
 ## Empty States
 
 The detail page explicitly handles runs with no patch, no tests, no metrics, failed execution
-status, hidden evaluation not run, and already approved or rejected patches. Hidden commands and
+status, hidden evaluation not run, and already approved or rejected patches. Analytics pages also
+handle empty filtered result sets independently from loading and API errors. Hidden commands and
 logs remain restricted to trusted backend routes; the dashboard receives only aggregate hidden
 status and counts.
 

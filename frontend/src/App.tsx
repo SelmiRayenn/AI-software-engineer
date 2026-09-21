@@ -2,8 +2,10 @@ import { useEffect, useState } from "react";
 import { AppLayout } from "./components/AppLayout";
 import { AgentRunDetailPage } from "./pages/AgentRunDetailPage";
 import { AgentRunsPage } from "./pages/AgentRunsPage";
+import { AnalyticsOverviewPage } from "./pages/AnalyticsOverviewPage";
 import { BenchmarkTasksPage } from "./pages/BenchmarkTasksPage";
 import { DashboardOverview } from "./pages/DashboardOverview";
+import { ModelLeaderboardPage } from "./pages/ModelLeaderboardPage";
 import { parseRoute, type RouteState } from "./router";
 import "./styles/main.css";
 
@@ -24,6 +26,8 @@ function App() {
   return (
     <AppLayout onNavigate={navigate} route={route}>
       {route.name === "overview" ? <DashboardOverview /> : null}
+      {route.name === "analytics" ? <AnalyticsOverviewPage /> : null}
+      {route.name === "leaderboard" ? <ModelLeaderboardPage /> : null}
       {route.name === "tasks" ? <BenchmarkTasksPage /> : null}
       {route.name === "runs" ? <AgentRunsPage onNavigate={navigate} /> : null}
       {route.name === "run-detail" ? (

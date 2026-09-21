@@ -23,3 +23,23 @@ export function formatDuration(startedAt: string, completedAt: string | null): s
   const remainder = seconds % 60;
   return `${minutes}m ${remainder}s`;
 }
+
+export function formatPercent(value: number | null, digits = 1): string {
+  return value === null ? "N/A" : `${(value * 100).toFixed(digits)}%`;
+}
+
+export function formatMoney(value: number): string {
+  return `$${value.toFixed(value < 0.01 ? 6 : 4)}`;
+}
+
+export function formatMetricNumber(value: number, digits = 2): string {
+  return new Intl.NumberFormat(undefined, {
+    maximumFractionDigits: digits,
+  }).format(value);
+}
+
+export function formatSeconds(value: number): string {
+  if (value < 60) return `${value.toFixed(1)}s`;
+  const minutes = Math.floor(value / 60);
+  return `${minutes}m ${(value % 60).toFixed(0)}s`;
+}
