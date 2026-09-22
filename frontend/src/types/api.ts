@@ -181,6 +181,70 @@ export interface EvaluationMetric {
   created_at: string;
 }
 
+export type TraceSeverity = "info" | "warning" | "error";
+
+export interface AgentRunTraceEvent {
+  id: UUID;
+  created_at: string;
+  event_type: string;
+  summary: string;
+  sanitized_payload: Record<string, unknown>;
+  tool_name: string | null;
+  file_paths: string[];
+  severity: TraceSeverity;
+}
+
+export interface TracePatchSummary {
+  id: UUID;
+  version: number;
+  is_selected: boolean;
+  changed_files: string[];
+  review_status: string;
+  created_at: string;
+}
+
+export interface TraceTestPhaseSummary {
+  phase: string;
+  command_count: number;
+  passed_count: number;
+  failed_count: number;
+  duration_seconds: number;
+}
+
+export interface TraceFailureSummary {
+  category: FailureCategory;
+  summary: string;
+  source_event_id: UUID | null;
+  created_at: string;
+}
+
+export interface TraceMetricSummary {
+  file_localization_score: number | null;
+  patch_applied: boolean;
+  baseline_tests_passed: boolean;
+  post_patch_tests_passed: boolean;
+  hidden_tests_passed: boolean | null;
+  hidden_tests_run_count: number;
+  issue_resolved: boolean;
+  regression_detected: boolean;
+  issue_specific_score: number;
+  modified_files_count: number;
+  unrelated_files_count: number;
+  tokens_used: number | null;
+  estimated_cost: number | null;
+  execution_time_seconds: number | null;
+}
+
+export interface AgentRunTrace {
+  run_id: UUID;
+  status: string;
+  events: AgentRunTraceEvent[];
+  generated_patches: TracePatchSummary[];
+  test_phases: TraceTestPhaseSummary[];
+  failure: TraceFailureSummary | null;
+  metrics: TraceMetricSummary | null;
+}
+
 export interface HumanReview {
   id: UUID;
   generated_patch_id: UUID;
@@ -278,6 +342,81 @@ export interface ModelLeaderboardRow {
   rank_by_speed: number;
   rank_by_localization: number;
   composite_score: number;
+}
+
+export interface ToolUsageCount {
+  tool_name: string;
+  call_count: number;
+}
+
+export interface ToolFailureCount {
+  tool_name: string;
+  failed_count: number;
+}
+
+export interface ToolErrorsByModel {
+  model_provider: string;
+  model_name: string;
+  total_tool_calls: number;
+  failed_tool_calls: number;
+  unknown_tool_calls: number;
+  malformed_tool_calls: number;
+  tool_error_rate: number;
+  runs_with_tool_errors: number;
+}
+
+export interface ToolUsageAnalytics {
+  total_tool_calls: number;
+  successful_tool_calls: number;
+  failed_tool_calls: number;
+  unknown_tool_calls: number;
+  malformed_tool_calls: number;
+  tool_error_rate: number;
+  average_tool_calls_per_run: number;
+  most_used_tools: ToolUsageCount[];
+  most_failed_tools: ToolFailureCount[];
+  tool_error_counts_by_type: Record<string, number>;
+  runs_with_tool_errors: number;
+  tool_errors_by_model: ToolErrorsByModel[];
+}
+
+export interface LocalizationMetricSet {
+  total_runs_with_gold_files: number;
+  average_file_localization_score: number;
+  top1_accuracy: number;
+  top3_accuracy: number;
+  top5_accuracy: number;
+  edited_file_precision: number;
+  edited_file_recall: number;
+  average_files_read: number;
+  average_files_edited: number;
+}
+
+export interface MissedGoldFile {
+  repository_owner: string;
+  repository_name: string;
+  file_path: string;
+  missed_run_count: number;
+  gold_run_count: number;
+  miss_rate: number;
+}
+
+export interface LocalizationByModel extends LocalizationMetricSet {
+  model_provider: string;
+  model_name: string;
+}
+
+export interface LocalizationByRepository extends LocalizationMetricSet {
+  repository_id: UUID;
+  repository_owner: string;
+  repository_name: string;
+  repository_url: string;
+}
+
+export interface FileLocalizationAnalytics extends LocalizationMetricSet {
+  most_common_missed_gold_files: MissedGoldFile[];
+  localization_by_model: LocalizationByModel[];
+  localization_by_repository: LocalizationByRepository[];
 }
 
 export interface ApiErrorPayload {

@@ -2,11 +2,13 @@ import { apiBaseUrl } from "./config";
 import type {
   AgentRun,
   AgentRunDetail,
+  AgentRunTrace,
   AnalyticsSummary,
   ApiErrorPayload,
   BenchmarkPack,
   BenchmarkTask,
   EvaluationMetric,
+  FileLocalizationAnalytics,
   GeneratedPatch,
   ModelLeaderboardRow,
   PackAnalytics,
@@ -15,6 +17,7 @@ import type {
   Repository,
   RepositoryAnalytics,
   TestResult,
+  ToolUsageAnalytics,
   UUID,
 } from "../types/api";
 
@@ -103,8 +106,26 @@ export async function getModelLeaderboard(
   return requestJson<ModelLeaderboardRow[]>(`/analytics/model-leaderboard${query}`);
 }
 
+export async function getToolUsage(
+  filters: AnalyticsFilters = {},
+): Promise<ToolUsageAnalytics> {
+  return requestJson<ToolUsageAnalytics>(`/analytics/tool-usage${analyticsQuery(filters)}`);
+}
+
+export async function getFileLocalization(
+  filters: AnalyticsFilters = {},
+): Promise<FileLocalizationAnalytics> {
+  return requestJson<FileLocalizationAnalytics>(
+    `/analytics/file-localization${analyticsQuery(filters)}`,
+  );
+}
+
 export async function getAgentRunDetails(runId: UUID): Promise<AgentRunDetail> {
   return requestJson<AgentRunDetail>(`/agent-runs/${runId}`);
+}
+
+export async function getRunTrace(runId: UUID): Promise<AgentRunTrace> {
+  return requestJson<AgentRunTrace>(`/agent-runs/${runId}/trace`);
 }
 
 export async function getRunPatch(runId: UUID): Promise<GeneratedPatch | null> {

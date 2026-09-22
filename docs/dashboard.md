@@ -48,11 +48,15 @@ rate denominators are documented in [aggregate analytics](analytics.md#model-lea
 1. Open an agent run from the run history.
 2. Confirm the linked issue title, repository, model, timestamps, and run status.
 3. Inspect the generated patch and changed file list.
-4. Review setup, baseline, and post-patch test results by phase. Command logs are collapsible and scrollable.
-5. Review baseline, visible post-patch, and hidden evaluation status. The issue outcome shows a
+4. Inspect the run trace to follow model calls, tool requests, observations, patch submissions,
+   test phases, failures, and evaluation. Filter by event type, tool, or severity and expand the
+   sanitized JSON payload only when deeper debugging context is needed.
+5. Use the trace quick links to jump to the patch, test, and metric sections.
+6. Review setup, baseline, and post-patch test results by phase. Command logs are collapsible and scrollable.
+7. Review baseline, visible post-patch, and hidden evaluation status. The issue outcome shows a
    `1.0`, `0.75`, `0.5`, or `0.0` issue-specific score and labels visible-only outcomes as lower
    confidence when no hidden tests ran.
-6. Approve the patch with reviewer name and optional notes, or reject it with reviewer name and required notes.
+8. Approve the patch with reviewer name and optional notes, or reject it with reviewer name and required notes.
 
 Approved patches become eligible for a future export or pull request creation flow. Rejected patches are blocked from export.
 
@@ -62,7 +66,7 @@ The detail page explicitly handles runs with no patch, no tests, no metrics, fai
 status, hidden evaluation not run, and already approved or rejected patches. Analytics pages also
 handle empty filtered result sets independently from loading and API errors. Hidden commands and
 logs remain restricted to trusted backend routes; the dashboard receives only aggregate hidden
-status and counts.
+status and counts. Trace payloads are redacted and bounded by the backend before rendering.
 
 ## Screenshot Placeholder
 

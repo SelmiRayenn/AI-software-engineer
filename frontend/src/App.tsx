@@ -5,7 +5,9 @@ import { AgentRunsPage } from "./pages/AgentRunsPage";
 import { AnalyticsOverviewPage } from "./pages/AnalyticsOverviewPage";
 import { BenchmarkTasksPage } from "./pages/BenchmarkTasksPage";
 import { DashboardOverview } from "./pages/DashboardOverview";
+import { FileLocalizationPage } from "./pages/FileLocalizationPage";
 import { ModelLeaderboardPage } from "./pages/ModelLeaderboardPage";
+import { ToolUsagePage } from "./pages/ToolUsagePage";
 import { parseRoute, type RouteState } from "./router";
 import "./styles/main.css";
 
@@ -28,6 +30,8 @@ function App() {
       {route.name === "overview" ? <DashboardOverview /> : null}
       {route.name === "analytics" ? <AnalyticsOverviewPage /> : null}
       {route.name === "leaderboard" ? <ModelLeaderboardPage /> : null}
+      {route.name === "tool-usage" ? <ToolUsagePage /> : null}
+      {route.name === "file-localization" ? <FileLocalizationPage /> : null}
       {route.name === "tasks" ? <BenchmarkTasksPage /> : null}
       {route.name === "runs" ? <AgentRunsPage onNavigate={navigate} /> : null}
       {route.name === "run-detail" ? (

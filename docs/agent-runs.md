@@ -133,6 +133,33 @@ Test command logs are available through:
 GET /agent-runs/{run_id}/tests
 ```
 
+## Run Trace
+
+```text
+GET /agent-runs/{run_id}/trace
+```
+
+The trace endpoint returns all stored `AgentEvent` records ordered by creation time and event ID.
+Each event includes a normalized summary, severity, related tool name and repository-relative file
+paths when available, plus a sanitized payload suitable for operator debugging.
+
+The response also includes compact artifact summaries:
+
+- Generated patch versions, selection state, changed files, and review status. Patch text is not
+  included.
+- Setup, baseline, post-patch, and hidden-evaluation phase counts and durations. Hidden commands
+  and output are not included.
+- Persisted failure category and redacted human-readable summary.
+- Evaluation metric summary, including visible and aggregate hidden-evaluation outcomes.
+
+Trace payloads are sanitized again when read, even though normal event writers already sanitize
+their logs. Secret-bearing keys and common API key/token patterns are redacted. Long strings,
+lists, mappings, and deeply nested structures are bounded. Gold patch/test payloads and hidden-test
+definitions are removed. Hidden evaluation events expose aggregate status only.
+
+The trace is an operator-facing audit view. It does not mutate the run, execute tools, rerun tests,
+or expose the benchmark's trusted solution data.
+
 ## Safety
 
 Prompt templates live in `backend/app/agents/prompts.py`. They cover the system role,

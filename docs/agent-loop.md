@@ -174,6 +174,12 @@ stored once in `agent_run_configured`. Logged content is size-limited and common
 token patterns are redacted. Full tool observations exist only in the in-memory provider
 conversation for the active run.
 
+`GET /analytics/tool-usage` turns these events into selection and reliability metrics. Request and
+outcome events are authoritative for current loop runs, while `agent_tool_call` is a fallback for
+legacy/scripted runs. This avoids double-counting an executed tool while still counting unknown,
+malformed, and incomplete requests that never reach a registered tool. See
+[aggregate analytics](analytics.md#tool-usage) for metric definitions and filters.
+
 ## Mock Provider
 
 `MockModelProvider` supports an explicit ordered response sequence for deterministic service tests.

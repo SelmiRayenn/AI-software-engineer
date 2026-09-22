@@ -5,6 +5,7 @@ import {
   getPatchReview,
   getRunPatch,
   getRunTests,
+  getRunTrace,
   rejectPatch,
 } from "../api";
 import { ErrorState, LoadingState } from "../components/DataState";
@@ -12,6 +13,8 @@ import { PageHeader } from "../components/PageHeader";
 import { StatusBadge } from "../components/StatusBadge";
 import type {
   AgentRunDetail,
+  AgentRunTrace,
+  AgentRunTraceEvent,
   GeneratedPatch,
   PatchReview,
   TestResult,
@@ -28,6 +31,7 @@ interface DetailState {
   patch: GeneratedPatch | null;
   review: PatchReview | null;
   tests: TestResult[];
+  trace: AgentRunTrace;
 }
 
 interface TestPhaseGroup {
@@ -52,15 +56,19 @@ export function AgentRunDetailPage({ runId, onNavigate }: AgentRunDetailPageProp
   const [validationError, setValidationError] = useState<string | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
   const [actionPending, setActionPending] = useState(false);
+  const [eventTypeFilter, setEventTypeFilter] = useState("");
+  const [toolFilter, setToolFilter] = useState("");
+  const [severityFilter, setSeverityFilter] = useState("");
 
   const loadDetail = useCallback(async (): Promise<DetailState> => {
     const run = await getAgentRunDetails(runId);
-    const [patch, tests] = await Promise.all([
+    const [patch, tests, trace] = await Promise.all([
       getRunPatch(runId),
       getRunTests(runId),
+      getRunTrace(runId),
     ]);
     const review = patch ? await getPatchReview(patch.id) : null;
-    return { run, patch, review, tests };
+    return { run, patch, review, tests, trace };
   }, [runId]);
 
   useEffect(() => {
@@ -85,6 +93,31 @@ export function AgentRunDetailPage({ runId, onNavigate }: AgentRunDetailPageProp
   const testsByPhase = useMemo(
     () => groupTestsByPhase(state?.tests ?? []),
     [state?.tests],
+  );
+  const traceEventTypes = useMemo(
+    () => [...new Set(state?.trace.events.map((event) => event.event_type) ?? [])].sort(),
+    [state?.trace.events],
+  );
+  const traceTools = useMemo(
+    () => [
+      ...new Set(
+        state?.trace.events
+          .map((event) => event.tool_name)
+          .filter((tool): tool is string => Boolean(tool)) ?? [],
+      ),
+    ].sort(),
+    [state?.trace.events],
+  );
+  const filteredTraceEvents = useMemo(
+    () =>
+      state?.trace.events.filter((event) => {
+        return (
+          (!eventTypeFilter || event.event_type === eventTypeFilter) &&
+          (!toolFilter || event.tool_name === toolFilter) &&
+          (!severityFilter || event.severity === severityFilter)
+        );
+      }) ?? [],
+    [eventTypeFilter, severityFilter, state?.trace.events, toolFilter],
   );
 
   async function submitReview(decision: "approve" | "reject") {
@@ -263,7 +296,62 @@ export function AgentRunDetailPage({ runId, onNavigate }: AgentRunDetailPageProp
         </article>
       </section>
 
-      <section className="panel">
+      <section className="panel" id="run-trace">
+        <div className="panel-header">
+          <h3>Run Trace</h3>
+          <span>{filteredTraceEvents.length}/{state.trace.events.length} events</span>
+        </div>
+        <nav className="trace-quick-links" aria-label="Run artifact links">
+          <a href="#generated-patch">Patch ({state.trace.generated_patches.length})</a>
+          <a href="#test-results">Tests ({state.trace.test_phases.length} phases)</a>
+          <a href="#evaluation-metrics">Metrics ({state.trace.metrics ? "ready" : "pending"})</a>
+          {state.trace.failure ? (
+            <span className="trace-failure-link">
+              Failure: {formatFailureCategory(state.trace.failure.category)}
+            </span>
+          ) : null}
+        </nav>
+        <div className="trace-filters" aria-label="Trace filters">
+          <label>
+            <span>Event type</span>
+            <select value={eventTypeFilter} onChange={(event) => setEventTypeFilter(event.target.value)}>
+              <option value="">All events</option>
+              {traceEventTypes.map((eventType) => (
+                <option key={eventType} value={eventType}>{eventType}</option>
+              ))}
+            </select>
+          </label>
+          <label>
+            <span>Tool</span>
+            <select value={toolFilter} onChange={(event) => setToolFilter(event.target.value)}>
+              <option value="">All tools</option>
+              {traceTools.map((tool) => (
+                <option key={tool} value={tool}>{tool}</option>
+              ))}
+            </select>
+          </label>
+          <label>
+            <span>Severity</span>
+            <select value={severityFilter} onChange={(event) => setSeverityFilter(event.target.value)}>
+              <option value="">All severities</option>
+              <option value="info">Info</option>
+              <option value="warning">Warning</option>
+              <option value="error">Error</option>
+            </select>
+          </label>
+        </div>
+        {filteredTraceEvents.length === 0 ? (
+          <p className="muted">No trace events match the current filters.</p>
+        ) : (
+          <ol className="trace-timeline">
+            {filteredTraceEvents.map((event) => (
+              <TraceEvent key={event.id} event={event} />
+            ))}
+          </ol>
+        )}
+      </section>
+
+      <section className="panel" id="generated-patch">
         <div className="panel-header">
           <h3>Generated Patch</h3>
           {state.patch ? <span>{formatTimestamp(state.patch.created_at)}</span> : null}
@@ -294,7 +382,7 @@ export function AgentRunDetailPage({ runId, onNavigate }: AgentRunDetailPageProp
         )}
       </section>
 
-      <section className="panel">
+      <section className="panel" id="patch-approval">
         <div className="panel-header">
           <h3>Patch Approval</h3>
           <StatusBadge value={reviewStatus} />
@@ -359,7 +447,7 @@ export function AgentRunDetailPage({ runId, onNavigate }: AgentRunDetailPageProp
         )}
       </section>
 
-      <section className="panel">
+      <section className="panel" id="test-results">
         <div className="panel-header">
           <h3>Test Results</h3>
           <span>{state.tests.length} commands</span>
@@ -403,7 +491,7 @@ export function AgentRunDetailPage({ runId, onNavigate }: AgentRunDetailPageProp
         )}
       </section>
 
-      <section className="panel">
+      <section className="panel" id="evaluation-metrics">
         <div className="panel-header">
           <h3>Evaluation Metrics</h3>
           <span>{state.run.metric_summary ? "Available" : "Not evaluated"}</span>
@@ -481,6 +569,40 @@ export function AgentRunDetailPage({ runId, onNavigate }: AgentRunDetailPageProp
         )}
       </section>
     </div>
+  );
+}
+
+function TraceEvent({ event }: { event: AgentRunTraceEvent }) {
+  return (
+    <li className="trace-event" data-severity={event.severity}>
+      <div className="trace-marker" aria-hidden="true" />
+      <div className="trace-event-body">
+        <div className="trace-event-header">
+          <div>
+            <strong>{event.summary}</strong>
+            <code>{event.event_type}</code>
+          </div>
+          <div className="trace-event-meta">
+            <span className={`trace-severity trace-severity-${event.severity}`}>
+              {event.severity}
+            </span>
+            <time dateTime={event.created_at}>{formatTimestamp(event.created_at)}</time>
+          </div>
+        </div>
+        {event.tool_name || event.file_paths.length > 0 ? (
+          <div className="trace-context">
+            {event.tool_name ? <span className="trace-tool">Tool: {event.tool_name}</span> : null}
+            {event.file_paths.map((filePath) => (
+              <span className="file-pill mono" key={filePath}>{filePath}</span>
+            ))}
+          </div>
+        ) : null}
+        <details className="trace-payload">
+          <summary>Sanitized payload</summary>
+          <pre>{JSON.stringify(event.sanitized_payload, null, 2)}</pre>
+        </details>
+      </div>
+    </li>
   );
 }
 

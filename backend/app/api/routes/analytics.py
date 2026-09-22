@@ -8,9 +8,11 @@ from app.analytics.service import AnalyticsFilters, AnalyticsService
 from app.api.routes.agent_run_orchestration import DbSession
 from app.schemas.analytics import (
     AnalyticsSummary,
+    FileLocalizationAnalytics,
     ModelLeaderboardRow,
     PackAnalytics,
     RepositoryAnalytics,
+    ToolUsageAnalytics,
 )
 
 router = APIRouter(prefix="/analytics", tags=["analytics"])
@@ -54,6 +56,18 @@ def get_analytics_by_repository(
 @router.get("/by-pack", response_model=list[PackAnalytics])
 def get_analytics_by_pack(filters: AnalyticsFiltersDep, db: DbSession) -> list[PackAnalytics]:
     return AnalyticsService(db).by_pack(filters)
+
+
+@router.get("/tool-usage", response_model=ToolUsageAnalytics)
+def get_tool_usage(filters: AnalyticsFiltersDep, db: DbSession) -> ToolUsageAnalytics:
+    return AnalyticsService(db).tool_usage(filters)
+
+
+@router.get("/file-localization", response_model=FileLocalizationAnalytics)
+def get_file_localization(
+    filters: AnalyticsFiltersDep, db: DbSession
+) -> FileLocalizationAnalytics:
+    return AnalyticsService(db).file_localization(filters)
 
 
 @router.get("/model-leaderboard", response_model=list[ModelLeaderboardRow])

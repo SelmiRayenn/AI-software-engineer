@@ -11,6 +11,7 @@ from app.db.base import Base
 from app.db.session import get_db
 from app.main import app
 from app.models import (
+    AgentEvent,
     AgentRun,
     BenchmarkPack,
     BenchmarkPackRun,
@@ -18,6 +19,7 @@ from app.models import (
     BenchmarkTask,
     EvaluationMetric,
     GeneratedPatch,
+    GoldPatch,
     HumanReview,
     Repository,
 )
@@ -187,6 +189,62 @@ def attach_run_to_pack(
     return pack
 
 
+def add_event(db: Session, run: AgentRun, event_type: str, payload: dict) -> None:
+    db.add(
+        AgentEvent(
+            agent_run_id=run.id,
+            event_type=event_type,
+            payload_json=payload,
+        )
+    )
+
+
+def add_gold_patch(db: Session, task: BenchmarkTask, changed_files: list[str]) -> None:
+    db.add(
+        GoldPatch(
+            benchmark_task_id=task.id,
+            changed_files=changed_files,
+            patch_text="trusted gold patch",
+            test_files=[],
+        )
+    )
+
+
+def add_generated_patch(db: Session, run: AgentRun, changed_files: list[str]) -> None:
+    db.add(
+        GeneratedPatch(
+            agent_run_id=run.id,
+            patch_text="generated patch",
+            changed_files=changed_files,
+            version=1,
+            is_selected=True,
+        )
+    )
+
+
+def add_inspections(
+    db: Session,
+    run: AgentRun,
+    file_paths: list[str],
+    *,
+    start: datetime | None = None,
+) -> None:
+    started = start or datetime(2026, 1, 15, 12, 0, tzinfo=UTC)
+    for index, file_path in enumerate(file_paths):
+        db.add(
+            AgentEvent(
+                agent_run_id=run.id,
+                event_type="agent_tool_call",
+                payload_json={
+                    "tool_name": "read_file",
+                    "success": True,
+                    "files_read": [file_path],
+                },
+                created_at=started + timedelta(seconds=index),
+            )
+        )
+
+
 def test_empty_analytics_has_defined_zero_state(client: TestClient) -> None:
     response = client.get("/analytics/summary")
 
@@ -213,6 +271,357 @@ def test_empty_analytics_has_defined_zero_state(client: TestClient) -> None:
     }
     assert client.get("/analytics/by-repository").json() == []
     assert client.get("/analytics/by-pack").json() == []
+
+
+def test_empty_tool_usage_has_defined_zero_state(client: TestClient) -> None:
+    response = client.get("/analytics/tool-usage")
+
+    assert response.status_code == 200
+    assert response.json() == {
+        "total_tool_calls": 0,
+        "successful_tool_calls": 0,
+        "failed_tool_calls": 0,
+        "unknown_tool_calls": 0,
+        "malformed_tool_calls": 0,
+        "tool_error_rate": 0.0,
+        "average_tool_calls_per_run": 0.0,
+        "most_used_tools": [],
+        "most_failed_tools": [],
+        "tool_error_counts_by_type": {},
+        "runs_with_tool_errors": 0,
+        "tool_errors_by_model": [],
+    }
+
+
+def test_tool_usage_counts_modern_calls_once_and_classifies_errors(
+    client: TestClient,
+) -> None:
+    with TestingSessionLocal() as db:
+        task = create_task(db, "acme", "tools")
+        run = create_run(db, task, provider="openai", model="agent-model", metric_values={})
+        add_event(
+            db,
+            run,
+            "tool_call_requested",
+            {"tool_call": {"id": "call-1", "name": "read_file", "arguments": {}}},
+        )
+        add_event(
+            db,
+            run,
+            "agent_tool_call",
+            {"tool_name": "read_file", "success": True},
+        )
+        add_event(
+            db,
+            run,
+            "tool_call_completed",
+            {"tool_call_id": "call-1", "tool_name": "read_file"},
+        )
+        add_event(
+            db,
+            run,
+            "tool_call_requested",
+            {"tool_call": {"id": "call-2", "name": "delete_repository", "arguments": {}}},
+        )
+        add_event(
+            db,
+            run,
+            "tool_call_failed",
+            {
+                "tool_call_id": "call-2",
+                "tool_name": "delete_repository",
+                "failure_category": "unknown_tool",
+                "error_message": "Unknown tool",
+            },
+        )
+        add_event(
+            db,
+            run,
+            "tool_call_requested",
+            {"tool_call": {"id": "call-3", "arguments": "not-an-object"}},
+        )
+        add_event(
+            db,
+            run,
+            "tool_call_failed",
+            {
+                "tool_call_id": "call-3",
+                "tool_name": "malformed_tool_call",
+                "failure_category": "malformed_tool_call",
+            },
+        )
+        db.commit()
+
+    payload = client.get("/analytics/tool-usage").json()
+
+    assert payload["total_tool_calls"] == 3
+    assert payload["successful_tool_calls"] == 1
+    assert payload["failed_tool_calls"] == 2
+    assert payload["unknown_tool_calls"] == 1
+    assert payload["malformed_tool_calls"] == 1
+    assert payload["tool_error_rate"] == pytest.approx(2 / 3)
+    assert payload["average_tool_calls_per_run"] == pytest.approx(3.0)
+    assert payload["runs_with_tool_errors"] == 1
+    assert payload["most_used_tools"] == [
+        {"tool_name": "delete_repository", "call_count": 1},
+        {"tool_name": "malformed_tool_call", "call_count": 1},
+        {"tool_name": "read_file", "call_count": 1},
+    ]
+    assert payload["most_failed_tools"] == [
+        {"tool_name": "delete_repository", "failed_count": 1},
+        {"tool_name": "malformed_tool_call", "failed_count": 1},
+    ]
+    assert payload["tool_error_counts_by_type"] == {
+        "malformed_tool_call": 1,
+        "unknown_tool": 1,
+    }
+    assert payload["tool_errors_by_model"] == [
+        {
+            "model_provider": "openai",
+            "model_name": "agent-model",
+            "total_tool_calls": 3,
+            "failed_tool_calls": 2,
+            "unknown_tool_calls": 1,
+            "malformed_tool_calls": 1,
+            "tool_error_rate": pytest.approx(2 / 3),
+            "runs_with_tool_errors": 1,
+        }
+    ]
+
+
+def test_tool_usage_supports_legacy_events_and_all_filters(client: TestClient) -> None:
+    with TestingSessionLocal() as db:
+        included_task = create_task(db, "acme", "included-tools")
+        excluded_task = create_task(db, "other", "excluded-tools")
+        included = create_run(
+            db,
+            included_task,
+            provider="mock",
+            model="included-model",
+            started_at=datetime(2026, 2, 10, tzinfo=UTC),
+            metric_values={},
+        )
+        excluded = create_run(
+            db,
+            excluded_task,
+            provider="local",
+            model="excluded-model",
+            started_at=datetime(2026, 3, 10, tzinfo=UTC),
+            metric_values={},
+        )
+        add_event(
+            db,
+            included,
+            "agent_tool_call",
+            {"tool_name": "list_files", "success": True},
+        )
+        add_event(
+            db,
+            included,
+            "agent_tool_call",
+            {
+                "tool_name": "run_tests",
+                "success": False,
+                "error_message": "Command timed out",
+            },
+        )
+        add_event(
+            db,
+            excluded,
+            "agent_tool_call",
+            {"tool_name": "read_file", "success": True},
+        )
+        pack = attach_run_to_pack(db, included, slug="tool-pack")
+        db.commit()
+        filters = {
+            "benchmark_pack_id": str(pack.id),
+            "repository_id": str(included_task.repository_id),
+            "model_provider": "mock",
+            "model_name": "included-model",
+            "date_from": "2026-02-01T00:00:00Z",
+            "date_to": "2026-02-28T23:59:59Z",
+        }
+
+    payload = client.get("/analytics/tool-usage", params=filters).json()
+
+    assert payload["total_tool_calls"] == 2
+    assert payload["successful_tool_calls"] == 1
+    assert payload["failed_tool_calls"] == 1
+    assert payload["tool_error_counts_by_type"] == {"timeout": 1}
+    assert payload["tool_errors_by_model"][0]["model_name"] == "included-model"
+
+    for key, value in (
+        ("benchmark_pack_id", str(pack.id)),
+        ("repository_id", str(included_task.repository_id)),
+        ("model_provider", "mock"),
+        ("model_name", "included-model"),
+    ):
+        assert client.get("/analytics/tool-usage", params={key: value}).json()[
+            "total_tool_calls"
+        ] == 2
+
+    assert client.get(
+        "/analytics/tool-usage", params={"model_provider": "anthropic"}
+    ).json()["total_tool_calls"] == 0
+
+
+def test_file_localization_top_k_uses_first_unique_inspection_order(
+    client: TestClient,
+) -> None:
+    with TestingSessionLocal() as db:
+        task = create_task(db, "acme", "ranking")
+        add_gold_patch(db, task, ["src/target.py"])
+        first = create_run(db, task, model="ranked", metric_values={})
+        third = create_run(db, task, model="ranked", metric_values={})
+        fifth = create_run(db, task, model="ranked", metric_values={})
+        add_inspections(db, first, ["src/target.py"])
+        add_inspections(db, third, ["src/a.py", "src/b.py", "src/target.py"])
+        add_inspections(
+            db,
+            fifth,
+            ["src/a.py", "src/b.py", "src/c.py", "src/d.py", "src/target.py"],
+        )
+        db.commit()
+
+    payload = client.get("/analytics/file-localization").json()
+
+    assert payload["total_runs_with_gold_files"] == 3
+    assert payload["average_file_localization_score"] == 1.0
+    assert payload["top1_accuracy"] == pytest.approx(1 / 3, abs=1e-6)
+    assert payload["top3_accuracy"] == pytest.approx(2 / 3, abs=1e-6)
+    assert payload["top5_accuracy"] == 1.0
+    assert payload["average_files_read"] == 3.0
+    assert payload["localization_by_model"][0]["top3_accuracy"] == pytest.approx(
+        2 / 3, abs=1e-6
+    )
+
+
+def test_file_localization_calculates_edited_precision_and_recall(
+    client: TestClient,
+) -> None:
+    with TestingSessionLocal() as db:
+        task = create_task(db, "acme", "precision")
+        add_gold_patch(db, task, ["src/a.py", "src/b.py"])
+        run = create_run(db, task, metric_values={})
+        add_generated_patch(db, run, ["src/a.py", "src/unrelated.py"])
+        add_inspections(db, run, ["src/a.py"])
+        db.commit()
+
+    payload = client.get("/analytics/file-localization").json()
+
+    assert payload["average_file_localization_score"] == 0.5
+    assert payload["edited_file_precision"] == 0.5
+    assert payload["edited_file_recall"] == 0.5
+    assert payload["average_files_edited"] == 2.0
+
+
+def test_file_localization_handles_no_gold_files(client: TestClient) -> None:
+    with TestingSessionLocal() as db:
+        task = create_task(db, "acme", "no-gold")
+        run = create_run(db, task, metric_values={})
+        add_inspections(db, run, ["src/a.py"])
+        db.commit()
+
+    response = client.get("/analytics/file-localization")
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["total_runs_with_gold_files"] == 0
+    assert payload["average_file_localization_score"] == 0.0
+    assert payload["most_common_missed_gold_files"] == []
+    assert payload["localization_by_model"] == []
+    assert payload["localization_by_repository"] == []
+
+
+def test_file_localization_handles_no_pre_edit_inspections(client: TestClient) -> None:
+    with TestingSessionLocal() as db:
+        task = create_task(db, "acme", "no-inspection")
+        add_gold_patch(db, task, ["src/target.py"])
+        run = create_run(db, task, metric_values={})
+        start = datetime(2026, 1, 15, 12, 0, tzinfo=UTC)
+        db.add(
+            AgentEvent(
+                agent_run_id=run.id,
+                event_type="agent_tool_call",
+                payload_json={
+                    "tool_name": "write_file",
+                    "success": True,
+                    "files_modified": ["src/other.py"],
+                },
+                created_at=start,
+            )
+        )
+        add_inspections(db, run, ["src/target.py"], start=start + timedelta(seconds=1))
+        db.commit()
+
+    payload = client.get("/analytics/file-localization").json()
+
+    assert payload["total_runs_with_gold_files"] == 1
+    assert payload["average_file_localization_score"] == 0.0
+    assert payload["top1_accuracy"] == 0.0
+    assert payload["average_files_read"] == 0.0
+    assert payload["most_common_missed_gold_files"] == [
+        {
+            "repository_owner": "acme",
+            "repository_name": "no-inspection",
+            "file_path": "src/target.py",
+            "missed_run_count": 1,
+            "gold_run_count": 1,
+            "miss_rate": 1.0,
+        }
+    ]
+
+
+def test_file_localization_supports_filters_and_grouping(client: TestClient) -> None:
+    with TestingSessionLocal() as db:
+        included_task = create_task(db, "acme", "localized")
+        excluded_task = create_task(db, "other", "excluded-localized")
+        add_gold_patch(db, included_task, ["src/included.py"])
+        add_gold_patch(db, excluded_task, ["src/excluded.py"])
+        included = create_run(
+            db,
+            included_task,
+            provider="mock",
+            model="included-model",
+            started_at=datetime(2026, 2, 10, tzinfo=UTC),
+            metric_values={},
+        )
+        excluded = create_run(
+            db,
+            excluded_task,
+            provider="local",
+            model="excluded-model",
+            started_at=datetime(2026, 3, 10, tzinfo=UTC),
+            metric_values={},
+        )
+        add_inspections(db, included, ["src/included.py"])
+        add_inspections(db, excluded, ["src/wrong.py"])
+        pack = attach_run_to_pack(db, included, slug="localization-pack")
+        db.commit()
+        filters = {
+            "benchmark_pack_id": str(pack.id),
+            "repository_id": str(included_task.repository_id),
+            "model_provider": "mock",
+            "model_name": "included-model",
+            "date_from": "2026-02-01T00:00:00Z",
+            "date_to": "2026-02-28T23:59:59Z",
+        }
+
+    payload = client.get("/analytics/file-localization", params=filters).json()
+
+    assert payload["total_runs_with_gold_files"] == 1
+    assert payload["average_file_localization_score"] == 1.0
+    assert payload["localization_by_model"][0]["model_name"] == "included-model"
+    assert payload["localization_by_repository"][0]["repository_name"] == "localized"
+    for key, value in (
+        ("benchmark_pack_id", str(pack.id)),
+        ("repository_id", str(included_task.repository_id)),
+        ("model_provider", "mock"),
+        ("model_name", "included-model"),
+    ):
+        assert client.get("/analytics/file-localization", params={key: value}).json()[
+            "total_runs_with_gold_files"
+        ] == 1
 
 
 def test_summary_aggregates_status_reviews_cost_and_pass_rates(client: TestClient) -> None:

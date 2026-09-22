@@ -11,6 +11,8 @@ const navItems = [
   { label: "Overview", path: "/" },
   { label: "Analytics", path: "/analytics" },
   { label: "Leaderboard", path: "/leaderboard" },
+  { label: "Tool Usage", path: "/tool-usage" },
+  { label: "Localization", path: "/file-localization" },
   { label: "Benchmark Tasks", path: "/tasks" },
   { label: "Agent Runs", path: "/runs" },
 ];
@@ -59,6 +61,12 @@ function isActive(route: RouteState, path: string): boolean {
   }
   if (path === "/leaderboard") {
     return route.name === "leaderboard";
+  }
+  if (path === "/tool-usage") {
+    return route.name === "tool-usage";
+  }
+  if (path === "/file-localization") {
+    return route.name === "file-localization";
   }
   if (path === "/runs") {
     return route.name === "runs" || route.name === "run-detail";

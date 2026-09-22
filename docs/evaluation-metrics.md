@@ -38,6 +38,13 @@ Only files recorded in `agent_tool_call` event `files_read` payloads are counted
 score of `1.0` means the agent inspected every file changed by the gold patch. A score of `0.0`
 means it inspected none of them.
 
+The operator analytics endpoint `GET /analytics/file-localization` adds ranking and edit-quality
+context. It orders unique paths from successful retrieval/search/read events, stops at the first
+edit, and reports top-1/top-3/top-5 accuracy plus generated-patch precision and recall. This
+pre-edit analytics definition is intentionally stricter than the persisted compatibility metric,
+which continues to count every `agent_tool_call.files_read` entry over the complete run. See
+[aggregate analytics](analytics.md#file-localization) for formulas and filtering.
+
 ### Patch Applied
 
 `patch_applied` is `true` only when a `GeneratedPatch` exists, the patch is not empty, and the run
@@ -135,6 +142,6 @@ If either timestamp is unavailable, the value is `null`.
 - Gold solution data is read by the evaluation service only; normal agent-facing task/run responses
   still do not expose `GoldPatch.patch_text`.
 - Hidden execution currently uses the existing subprocess executor; see the hidden evaluation
-  documentation for isolation limits. Leaderboard aggregation remains a future layer.
+  documentation for isolation limits.
 - The current confidence indicator is derived from whether hidden tests ran; it is not a
   probabilistic confidence estimate.
