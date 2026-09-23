@@ -57,7 +57,10 @@ class AnalyticsService:
         self.db = db
 
     def summary(self, filters: AnalyticsFilters) -> AnalyticsSummary:
-        return self._aggregate(self._load_runs(filters))
+        return self.summary_for_runs(self._load_runs(filters))
+
+    def summary_for_runs(self, runs: list[AgentRun]) -> AnalyticsSummary:
+        return self._aggregate(runs)
 
     def by_repository(self, filters: AnalyticsFilters) -> list[RepositoryAnalytics]:
         grouped: dict[UUID, list[AgentRun]] = defaultdict(list)
@@ -128,8 +131,16 @@ class AnalyticsService:
     def model_leaderboard(
         self, filters: AnalyticsFilters, *, min_runs: int = 1
     ) -> list[ModelLeaderboardRow]:
+        return self.model_leaderboard_for_runs(self._load_runs(filters), min_runs=min_runs)
+
+    def model_leaderboard_for_runs(
+        self,
+        runs: list[AgentRun],
+        *,
+        min_runs: int = 1,
+    ) -> list[ModelLeaderboardRow]:
         grouped: dict[tuple[str, str], list[AgentRun]] = defaultdict(list)
-        for run in self._load_runs(filters):
+        for run in runs:
             grouped[(run.model_provider, run.model_name)].append(run)
 
         rows = [
@@ -181,9 +192,7 @@ class AnalyticsService:
         used_counts = Counter(record.tool_name for record in records)
         failed_records = [record for record in records if not record.success]
         failed_counts = Counter(record.tool_name for record in failed_records)
-        error_type_counts = Counter(
-            record.error_type or "tool_error" for record in failed_records
-        )
+        error_type_counts = Counter(record.error_type or "tool_error" for record in failed_records)
 
         failed_run_ids = {record.run_id for record in failed_records}
         total_calls = len(records)
@@ -280,15 +289,15 @@ class AnalyticsService:
             call = raw_call if isinstance(raw_call, dict) else {}
             call_id = call.get("id") if isinstance(call.get("id"), str) else None
             raw_name = call.get("name")
-            tool_name = raw_name if isinstance(raw_name, str) and raw_name else "malformed_tool_call"
+            tool_name = (
+                raw_name if isinstance(raw_name, str) and raw_name else "malformed_tool_call"
+            )
             outcome = terminal_by_id.get(call_id) if call_id else None
             if outcome is None:
                 outcome = _take_matching_terminal(unmatched, tool_name)
 
             if outcome is None:
-                records.append(
-                    _ToolCallRecord(run_id, tool_name, False, "incomplete_tool_call")
-                )
+                records.append(_ToolCallRecord(run_id, tool_name, False, "incomplete_tool_call"))
             elif outcome.event_type == "tool_call_completed":
                 records.append(_ToolCallRecord(run_id, tool_name, True))
             else:
@@ -303,9 +312,7 @@ class AnalyticsService:
         return records
 
     @staticmethod
-    def _legacy_tool_records(
-        run_id: UUID, events: list[AgentEvent]
-    ) -> list[_ToolCallRecord]:
+    def _legacy_tool_records(run_id: UUID, events: list[AgentEvent]) -> list[_ToolCallRecord]:
         records: list[_ToolCallRecord] = []
         for event in events:
             if event.event_type != "agent_tool_call":

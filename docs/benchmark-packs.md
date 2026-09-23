@@ -226,6 +226,25 @@ Gold data and hidden payloads are not included in this public snapshot or finger
 still freeze task definitions, gold/hidden suites, environments and versions for comparable reruns;
 this is not an immutable dataset or environment archive.
 
+## Export Reports
+
+Download a saved pack run as versioned JSON or presentation-ready Markdown:
+
+```http
+GET /benchmark-pack-runs/{pack_run_id}/report.json
+GET /benchmark-pack-runs/{pack_run_id}/report.md
+```
+
+The report uses the saved roster, run configuration, per-task metric snapshots, and pack aggregates.
+It includes an ordered task table, failure-category counts, recurring bounded errors, and explicit
+limitations. Empty runs produce a valid zero-valued report. Responses use attachment filenames
+containing the pack-run UUID, making them suitable for retaining with portfolio or demo evidence.
+
+Pack reports do not include gold changed files, gold patches, hidden test definitions, commands,
+payloads, patches, or logs. Hidden evaluation appears only as per-task aggregate status/counts and
+the aggregate hidden pass rate. Failure messages and pack descriptions are redacted and truncated
+for safe sharing. See [evaluation reports](reporting.md) for the complete contract and limits.
+
 Events named `benchmark_pack_task_requested`, `benchmark_pack_task_started`, and
 `benchmark_pack_task_finished` link each AgentRun to the pack-run UUID and order. Requested events
 store effective configuration. Early-stop tasks record `benchmark_pack_task_skipped`; unexpected

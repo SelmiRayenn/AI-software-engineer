@@ -255,4 +255,22 @@ status in patch and run responses, and blocks rejected patches from export eligi
 
 See `docs/human-approval.md` for endpoint examples and review rules.
 
+## Run Reports
+
+Use `GET /agent-runs/{run_id}/report.json` or `GET /agent-runs/{run_id}/report.md` to download a
+safe, bounded evaluation report for one run. Hidden test content and gold solution data are not
+included. Aggregate pack evidence is available from
+`GET /benchmark-pack-runs/{pack_run_id}/report.json` and the corresponding `.md` endpoint. See
+[evaluation reporting](docs/reporting.md) for the report contracts and sharing limits.
+
+## Public Benchmark Results
+
+Public portfolio/demo metrics will be published here after benchmark packs and model configurations
+are frozen and independently reviewed. Until then, generate a safe local snapshot with
+`GET /reports/public-demo-snapshot` for JSON or add `?format=md` for Markdown.
+
+| Snapshot | Status | Notes |
+| --- | --- | --- |
+| Public benchmark baseline | Not published | Awaiting verified pack and reproducible model runs |
+
 See `docs/database-migrations.md` for the migration workflow.

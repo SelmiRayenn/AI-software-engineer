@@ -1,3 +1,4 @@
+import json
 from collections.abc import Generator
 from datetime import UTC, datetime, timedelta
 
@@ -7,12 +8,14 @@ from sqlalchemy import create_engine
 from sqlalchemy.orm import Session, sessionmaker
 from sqlalchemy.pool import StaticPool
 
+from app.core.config import settings
 from app.db.base import Base
 from app.db.session import get_db
 from app.main import app
 from app.models import (
     AgentEvent,
     AgentRun,
+    AgentRunFailure,
     BenchmarkPack,
     BenchmarkPackRun,
     BenchmarkPackRunTask,
@@ -20,6 +23,7 @@ from app.models import (
     EvaluationMetric,
     GeneratedPatch,
     GoldPatch,
+    HiddenEvalTest,
     HumanReview,
     Repository,
 )
@@ -245,6 +249,278 @@ def add_inspections(
         )
 
 
+def seed_public_demo_runs(db: Session):
+    first_task = create_task(db, "public-owner", "public-repo")
+    second_task = create_task(db, "other-owner", "other-repo")
+    db.add_all(
+        [
+            GoldPatch(
+                benchmark_task_id=first_task.id,
+                changed_files=["PRIVATE_GOLD_FILE.py"],
+                patch_text="PRIVATE_GOLD_PATCH_CONTENT",
+                test_files=["PRIVATE_GOLD_TEST.py"],
+            ),
+            HiddenEvalTest(
+                benchmark_task_id=first_task.id,
+                name="PRIVATE_HIDDEN_TEST_NAME",
+                commands=["python PRIVATE_HIDDEN_COMMAND.py"],
+                files_payload={"hidden.py": "PRIVATE_HIDDEN_FILE_CONTENT"},
+                patch_text="PRIVATE_HIDDEN_PATCH_CONTENT",
+            ),
+        ]
+    )
+    successful = create_run(
+        db,
+        first_task,
+        provider="mock",
+        model="public-model",
+        metric_values={
+            "patch_applied": True,
+            "tests_passed": True,
+            "post_patch_tests_passed": True,
+            "hidden_tests_passed": True,
+            "hidden_tests_run_count": 1,
+            "issue_resolved": True,
+            "file_localization_score": 1.0,
+            "issue_specific_score": 1.0,
+            "tokens_used": 100,
+            "estimated_cost": 0.1,
+            "execution_time_seconds": 10.0,
+        },
+    )
+    failed = create_run(
+        db,
+        second_task,
+        status="failed",
+        provider="mock",
+        model="public-model",
+        metric_values={
+            "hidden_tests_passed": False,
+            "hidden_tests_run_count": 1,
+            "hidden_tests_failed_count": 1,
+            "tokens_used": 50,
+            "estimated_cost": 0.05,
+            "execution_time_seconds": 5.0,
+        },
+    )
+    db.add(
+        AgentRunFailure(
+            agent_run_id=failed.id,
+            category="setup_failed",
+            human_readable_summary="api_key=PRIVATE_FAILURE_SECRET raw log must stay private",
+        )
+    )
+    standalone = create_run(
+        db,
+        second_task,
+        provider="anthropic",
+        model="standalone-model",
+        started_at=datetime(2026, 1, 16, tzinfo=UTC),
+        metric_values={
+            "patch_applied": True,
+            "tests_passed": True,
+            "post_patch_tests_passed": True,
+            "issue_resolved": True,
+            "file_localization_score": 0.5,
+            "issue_specific_score": 0.75,
+            "tokens_used": 200,
+            "estimated_cost": 0.2,
+            "execution_time_seconds": 20.0,
+        },
+    )
+    pack = BenchmarkPack(
+        name="Public Demo Pack",
+        slug="public-demo-pack",
+        version="1.0",
+    )
+    db.add(pack)
+    db.flush()
+    pack_run = BenchmarkPackRun(
+        benchmark_pack_id=pack.id,
+        pack_name=pack.name,
+        pack_slug=pack.slug,
+        pack_version=pack.version,
+        model_provider="mock",
+        model_name="public-model",
+        run_config={},
+        include_hidden_tests=True,
+        stop_on_task_failure=False,
+        status="partial_failure",
+        started_at=successful.started_at,
+        completed_at=failed.completed_at,
+        aggregates={},
+    )
+    db.add(pack_run)
+    db.flush()
+    for order_index, run in enumerate((successful, failed)):
+        db.add(
+            BenchmarkPackRunTask(
+                benchmark_pack_run_id=pack_run.id,
+                benchmark_task_id=run.benchmark_task_id,
+                agent_run_id=run.id,
+                order_index=order_index,
+                task_snapshot={},
+                definition_hash="b" * 64,
+                status=run.status,
+                metric_summary={},
+                failure_category="setup_failed" if run.status == "failed" else None,
+                started_at=run.started_at,
+                completed_at=run.completed_at,
+            )
+        )
+    db.commit()
+    return pack, successful, failed, standalone
+
+
+def test_public_demo_snapshot_json_is_safe_and_contains_expected_sections(
+    client: TestClient,
+) -> None:
+    with TestingSessionLocal() as db:
+        pack, successful, failed, _ = seed_public_demo_runs(db)
+        pack_id = pack.id
+        successful_id = successful.id
+        failed_id = failed.id
+
+    response = client.get(
+        "/reports/public-demo-snapshot",
+        params={"benchmark_pack_id": str(pack_id), "limit": 2},
+    )
+
+    assert response.status_code == 200
+    assert response.headers["content-disposition"] == (
+        'attachment; filename="public-demo-snapshot.json"'
+    )
+    snapshot = response.json()
+    assert snapshot["schema_version"] == "1.0"
+    assert snapshot["benchmark_pack"]["slug"] == "public-demo-pack"
+    assert snapshot["aggregate_metrics"]["total_runs"] == 2
+    assert snapshot["aggregate_metrics"]["issue_resolved_rate"] == 0.5
+    assert snapshot["aggregate_metrics"]["visible_test_pass_rate"] == 0.5
+    assert snapshot["aggregate_metrics"]["hidden_test_pass_rate"] == 0.5
+    assert snapshot["usage"] == {
+        "total_tokens": 150,
+        "total_estimated_cost": pytest.approx(0.15),
+        "average_cost_per_run": pytest.approx(0.075),
+        "total_execution_time_seconds": 15.0,
+        "average_execution_time_seconds": 7.5,
+    }
+    assert snapshot["model_leaderboard"][0]["model_provider"] == "mock"
+    assert [run["run_id"] for run in snapshot["successful_runs"]] == [str(successful_id)]
+    assert [run["run_id"] for run in snapshot["failed_runs"]] == [str(failed_id)]
+    assert snapshot["failed_runs"][0]["failure_category"] == "setup_failed"
+    assert snapshot["failed_runs"][0]["repository_url"] is None
+
+    serialized = json.dumps(snapshot)
+    for private in (
+        "PRIVATE_GOLD_FILE",
+        "PRIVATE_GOLD_PATCH_CONTENT",
+        "PRIVATE_GOLD_TEST",
+        "PRIVATE_HIDDEN_TEST_NAME",
+        "PRIVATE_HIDDEN_COMMAND",
+        "PRIVATE_HIDDEN_FILE_CONTENT",
+        "PRIVATE_HIDDEN_PATCH_CONTENT",
+        "PRIVATE_FAILURE_SECRET",
+    ):
+        assert private not in serialized
+
+
+def test_public_demo_snapshot_markdown_is_portfolio_friendly(client: TestClient) -> None:
+    with TestingSessionLocal() as db:
+        pack, _, _, _ = seed_public_demo_runs(db)
+        pack_id = pack.id
+
+    response = client.get(
+        "/reports/public-demo-snapshot",
+        params={"benchmark_pack_id": str(pack_id), "format": "md"},
+    )
+
+    assert response.status_code == 200
+    assert response.headers["content-type"].startswith("text/markdown")
+    assert response.headers["content-disposition"] == (
+        'attachment; filename="public-demo-snapshot.md"'
+    )
+    for heading in (
+        "# Public Benchmark Results Snapshot",
+        "## Results Overview",
+        "## Cost, Tokens, and Time",
+        "## Model Leaderboard",
+        "## Selected Successful Runs",
+        "## Selected Failed Runs",
+        "## Sharing Notes",
+    ):
+        assert heading in response.text
+    assert "setup_failed" in response.text
+    assert "PRIVATE_FAILURE_SECRET" not in response.text
+    assert "PRIVATE_GOLD_PATCH_CONTENT" not in response.text
+
+
+def test_public_demo_snapshot_filters_and_total_limit_are_respected(
+    client: TestClient,
+) -> None:
+    with TestingSessionLocal() as db:
+        pack, _, _, standalone = seed_public_demo_runs(db)
+        pack_id = pack.id
+        standalone_id = standalone.id
+
+    by_pack = client.get(
+        "/reports/public-demo-snapshot",
+        params={"benchmark_pack_id": str(pack_id)},
+    ).json()
+    assert by_pack["aggregate_metrics"]["total_runs"] == 2
+    assert {row["model_provider"] for row in by_pack["model_leaderboard"]} == {"mock"}
+
+    by_provider = client.get(
+        "/reports/public-demo-snapshot",
+        params={"model_provider": "anthropic", "model_name": "standalone-model"},
+    ).json()
+    assert by_provider["aggregate_metrics"]["total_runs"] == 1
+    assert by_provider["successful_runs"][0]["run_id"] == str(standalone_id)
+
+    limited = client.get(
+        "/reports/public-demo-snapshot",
+        params={"benchmark_pack_id": str(pack_id), "limit": 1},
+    ).json()
+    assert len(limited["successful_runs"]) + len(limited["failed_runs"]) == 1
+
+
+def test_public_demo_repository_url_can_be_enabled(
+    client: TestClient,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    with TestingSessionLocal() as db:
+        seed_public_demo_runs(db)
+    monkeypatch.setattr(settings, "public_demo_redact_repository_urls", False)
+
+    snapshot = client.get(
+        "/reports/public-demo-snapshot",
+        params={"model_provider": "anthropic"},
+    ).json()
+
+    assert snapshot["successful_runs"][0]["repository_url"] == (
+        "https://github.com/other-owner/other-repo"
+    )
+
+
+def test_public_demo_snapshot_empty_state(client: TestClient) -> None:
+    response = client.get("/reports/public-demo-snapshot")
+
+    assert response.status_code == 200
+    snapshot = response.json()
+    assert snapshot["aggregate_metrics"]["total_runs"] == 0
+    assert snapshot["model_leaderboard"] == []
+    assert snapshot["successful_runs"] == []
+    assert snapshot["failed_runs"] == []
+    assert snapshot["usage"]["total_tokens"] == 0
+    assert "No benchmark runs matched the selected filters." in snapshot["notes"]
+
+    markdown = client.get(
+        "/reports/public-demo-snapshot",
+        params={"format": "md"},
+    ).text
+    assert "No model results matched the selected filters." in markdown
+    assert markdown.count("No runs selected.") == 2
+
+
 def test_empty_analytics_has_defined_zero_state(client: TestClient) -> None:
     response = client.get("/analytics/summary")
 
@@ -456,13 +732,16 @@ def test_tool_usage_supports_legacy_events_and_all_filters(client: TestClient) -
         ("model_provider", "mock"),
         ("model_name", "included-model"),
     ):
-        assert client.get("/analytics/tool-usage", params={key: value}).json()[
-            "total_tool_calls"
-        ] == 2
+        assert (
+            client.get("/analytics/tool-usage", params={key: value}).json()["total_tool_calls"] == 2
+        )
 
-    assert client.get(
-        "/analytics/tool-usage", params={"model_provider": "anthropic"}
-    ).json()["total_tool_calls"] == 0
+    assert (
+        client.get("/analytics/tool-usage", params={"model_provider": "anthropic"}).json()[
+            "total_tool_calls"
+        ]
+        == 0
+    )
 
 
 def test_file_localization_top_k_uses_first_unique_inspection_order(
@@ -491,9 +770,7 @@ def test_file_localization_top_k_uses_first_unique_inspection_order(
     assert payload["top3_accuracy"] == pytest.approx(2 / 3, abs=1e-6)
     assert payload["top5_accuracy"] == 1.0
     assert payload["average_files_read"] == 3.0
-    assert payload["localization_by_model"][0]["top3_accuracy"] == pytest.approx(
-        2 / 3, abs=1e-6
-    )
+    assert payload["localization_by_model"][0]["top3_accuracy"] == pytest.approx(2 / 3, abs=1e-6)
 
 
 def test_file_localization_calculates_edited_precision_and_recall(
@@ -619,9 +896,12 @@ def test_file_localization_supports_filters_and_grouping(client: TestClient) -> 
         ("model_provider", "mock"),
         ("model_name", "included-model"),
     ):
-        assert client.get("/analytics/file-localization", params={key: value}).json()[
-            "total_runs_with_gold_files"
-        ] == 1
+        assert (
+            client.get("/analytics/file-localization", params={key: value}).json()[
+                "total_runs_with_gold_files"
+            ]
+            == 1
+        )
 
 
 def test_summary_aggregates_status_reviews_cost_and_pass_rates(client: TestClient) -> None:

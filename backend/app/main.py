@@ -10,6 +10,7 @@ from app.api.routes.agent_run_index import router as agent_run_index_router
 from app.api.routes.agent_run_metrics import router as agent_run_metrics_router
 from app.api.routes.agent_run_orchestration import router as agent_run_orchestration_router
 from app.api.routes.agent_run_patches import router as agent_run_patches_router
+from app.api.routes.agent_run_reports import router as agent_run_reports_router
 from app.api.routes.agent_run_tests import router as agent_run_tests_router
 from app.api.routes.agent_run_trace import router as agent_run_trace_router
 from app.api.routes.agent_runs import router as agent_runs_router
@@ -28,6 +29,7 @@ from app.api.routes.hidden_eval_tests import router as hidden_eval_tests_router
 from app.api.routes.model_comparison import router as model_comparison_router
 from app.api.routes.patch_quality import router as patch_quality_router
 from app.api.routes.patch_reviews import router as patch_reviews_router
+from app.api.routes.reports import router as reports_router
 from app.api.routes.repositories import router as repositories_router
 from app.api.routes.sandbox import router as sandbox_router
 from app.core.config import settings
@@ -59,6 +61,7 @@ def create_app() -> FastAPI:
 
     app.include_router(health_router)
     app.include_router(repositories_router, prefix="/api/v1")
+    app.include_router(reports_router)
     app.include_router(benchmark_tasks_router, prefix="/api/v1")
     app.include_router(benchmark_tasks_router)
     app.include_router(agent_runs_router, prefix="/api/v1")
@@ -70,6 +73,7 @@ def create_app() -> FastAPI:
     app.include_router(agent_run_orchestration_router)
     app.include_router(agent_run_metrics_router)
     app.include_router(agent_run_patches_router)
+    app.include_router(agent_run_reports_router)
     app.include_router(agent_run_tests_router)
     app.include_router(agent_run_trace_router)
     app.include_router(model_comparison_router)

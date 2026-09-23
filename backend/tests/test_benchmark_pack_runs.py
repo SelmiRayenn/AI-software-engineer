@@ -536,3 +536,155 @@ def test_evaluation_failure_preserves_usage_and_original_failure(db, pack, facto
     assert result.aggregates.total_tokens == 240 and result.aggregates.total_cost == 0.02
     assert result.aggregates.total_execution_time >= 4
     assert all("execution failed" in item.failure_summary for item in result.tasks)
+
+
+def test_pack_run_json_report_includes_aggregate_and_ordered_task_results(client, db, pack):
+    pack.description = "A reproducible repair benchmark."
+    pack.source = "internal-curation"
+    db.commit()
+    result = start(client, pack)
+
+    response = client.get(f"/benchmark-pack-runs/{result['id']}/report.json")
+
+    assert response.status_code == 200
+    assert response.headers["content-disposition"].endswith('report.json"')
+    report = response.json()
+    assert report["schema_version"] == "1.0"
+    assert report["pack"] == {
+        "id": str(pack.id),
+        "name": "Repairs",
+        "slug": "repairs-v1",
+        "description": {
+            "text": "A reproducible repair benchmark.",
+            "truncated": False,
+            "original_size_bytes": 32,
+        },
+        "version": "1",
+        "source": "internal-curation",
+    }
+    assert report["pack_run"]["status"] == "completed"
+    assert report["model"] == {"provider": "mock", "name": "pack-mock"}
+    assert report["run_configuration"]["max_steps"] == 4
+    assert report["aggregates"] == result["aggregates"]
+    assert [task["order_index"] for task in report["tasks"]] == [10, 20]
+    assert all(task["metrics"]["issue_resolved"] for task in report["tasks"])
+    assert report["failure_breakdown"] == []
+    assert report["recurring_failures"] == []
+    assert "PRIVATE_GOLD_SOLUTION" not in response.text
+    assert "PRIVATE_GOLD_FILE.py" not in response.text
+
+
+def test_pack_run_markdown_report_has_summary_and_per_task_table(client, pack):
+    result = start(client, pack)
+
+    response = client.get(f"/benchmark-pack-runs/{result['id']}/report.md")
+
+    assert response.status_code == 200
+    assert response.headers["content-type"].startswith("text/markdown")
+    assert response.headers["content-disposition"].endswith('report.md"')
+    for heading in (
+        "# Benchmark Pack Run Report",
+        "## Pack Metadata",
+        "## Pack Run Metadata",
+        "## Model and Run Configuration",
+        "## Aggregate Summary",
+        "## Per-Task Results",
+        "## Failure Category Breakdown",
+        "## Top Recurring Failed Tasks / Errors",
+        "## Known Limitations",
+    ):
+        assert heading in response.text
+    assert "| Issue resolved rate | 100.00% |" in response.text
+    assert "Addition issue 10" in response.text
+    assert "Addition issue 20" in response.text
+
+
+def test_pack_report_failed_task_is_bounded_redacted_and_hides_trusted_data(client, db, pack):
+    failed_task = ready_tasks(pack)[0]
+    failed_task.setup_commands = [python_command("raise SystemExit(1)")]
+    db.add(
+        HiddenEvalTest(
+            benchmark_task_id=failed_task.id,
+            name=HIDDEN_MARKER,
+            commands=["python PRIVATE_HIDDEN_COMMAND.py"],
+            files_payload={"private.py": "PRIVATE_HIDDEN_PAYLOAD"},
+            patch_text="PRIVATE_HIDDEN_PATCH",
+        )
+    )
+    db.commit()
+    result = start(client, pack)
+    pack_run = db.get(BenchmarkPackRun, UUID(result["id"]))
+    failed_entry = next(task for task in pack_run.tasks if task.status == "failed")
+    failed_entry.failure_summary = "Setup failed with api_key=never-export-this " + (
+        "failure detail " * 300
+    )
+    db.commit()
+
+    response = client.get(f"/benchmark-pack-runs/{result['id']}/report.json")
+
+    assert response.status_code == 200
+    report = response.json()
+    failure = next(task for task in report["tasks"] if task["status"] == "failed")
+    assert failure["failure_category"] == "setup_failed"
+    assert failure["failure_summary"]["truncated"] is True
+    assert "[REDACTED]" in failure["failure_summary"]["text"]
+    assert report["failure_breakdown"] == [{"category": "setup_failed", "count": 1}]
+    assert report["recurring_failures"][0]["count"] == 1
+    assert report["recurring_failures"][0]["category"] == "setup_failed"
+    serialized = json.dumps(report)
+    for private in (
+        GOLD_MARKER,
+        "PRIVATE_GOLD_FILE.py",
+        HIDDEN_MARKER,
+        "PRIVATE_HIDDEN_COMMAND",
+        "PRIVATE_HIDDEN_PAYLOAD",
+        "PRIVATE_HIDDEN_PATCH",
+        "never-export-this",
+    ):
+        assert private not in serialized
+
+    markdown = client.get(f"/benchmark-pack-runs/{result['id']}/report.md").text
+    assert "### Failed Task Details" in markdown
+    assert "Failure message truncated" in markdown
+    assert "never-export-this" not in markdown
+
+
+def test_empty_pack_run_report_is_well_defined(client, db, pack):
+    request = BenchmarkPackRunRequest(model_name="empty-model")
+    empty = BenchmarkPackRun(
+        benchmark_pack_id=pack.id,
+        pack_name=pack.name,
+        pack_slug=pack.slug,
+        pack_version=pack.version,
+        model_provider="mock",
+        model_name="empty-model",
+        run_config=request.model_dump(mode="json"),
+        include_hidden_tests=False,
+        stop_on_task_failure=False,
+        status="completed",
+        started_at=datetime.now(UTC),
+        completed_at=datetime.now(UTC),
+        aggregates=calculate_pack_aggregates([]).model_dump(mode="json"),
+    )
+    db.add(empty)
+    db.commit()
+
+    response = client.get(f"/benchmark-pack-runs/{empty.id}/report.json")
+
+    assert response.status_code == 200
+    report = response.json()
+    assert report["aggregates"]["total_tasks"] == 0
+    assert report["tasks"] == []
+    assert report["failure_breakdown"] == []
+    assert report["recurring_failures"] == []
+    assert "This pack run contains no task results." in report["known_limitations"]
+    markdown = client.get(f"/benchmark-pack-runs/{empty.id}/report.md").text
+    assert "No task results were recorded for this pack run." in markdown
+
+
+@pytest.mark.parametrize("extension", ["json", "md"])
+def test_missing_pack_run_report_returns_404(client, extension):
+    response = client.get(f"/benchmark-pack-runs/{uuid4()}/report.{extension}")
+
+    assert response.status_code == 404
+    assert response.json()["detail"] == "Benchmark pack run not found."

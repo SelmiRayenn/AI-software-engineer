@@ -62,6 +62,10 @@ class Settings(BaseSettings):
         default=True, alias="BLOCK_DEPENDENCY_FILE_CHANGES_BY_DEFAULT"
     )
     trusted_operator_token: str | None = Field(default=None, alias="TRUSTED_OPERATOR_TOKEN")
+    public_demo_redact_repository_urls: bool = Field(
+        default=True,
+        alias="PUBLIC_DEMO_REDACT_REPOSITORY_URLS",
+    )
     openai_api_key: str | None = Field(default=None, alias="OPENAI_API_KEY")
     openai_default_model: str = Field(default="gpt-4o-mini", alias="OPENAI_DEFAULT_MODEL")
     enable_real_model_calls: bool = Field(default=False, alias="ENABLE_REAL_MODEL_CALLS")
