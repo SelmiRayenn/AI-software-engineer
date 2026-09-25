@@ -5,6 +5,9 @@ from uuid import UUID
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 from app.core.run_statuses import VALID_RUN_STATUSES
+from app.schemas.agent_candidate_files import CandidateFileRank
+from app.schemas.agent_hypothesis import AgentHypothesisRead
+from app.schemas.agent_plan import AgentPlanRead
 from app.schemas.failure import FailureCategory
 
 
@@ -77,7 +80,7 @@ class AgentRunMetricSummary(BaseModel):
 class AgentRunConfig(BaseModel):
     model_provider: str = Field(default="mock", min_length=1, max_length=100)
     model_name: str | None = Field(default=None, max_length=255)
-    max_steps: int = Field(default=4, ge=1, le=50)
+    max_steps: int = Field(default=6, ge=1, le=50)
     max_tool_errors: int = Field(default=3, ge=1, le=20)
     command_timeout_seconds: int = Field(default=120, ge=1, le=600)
     include_issue_comments: bool = True
@@ -88,6 +91,12 @@ class AgentRunConfig(BaseModel):
     stop_on_first_passing_patch: bool = True
     include_test_failure_feedback: bool = True
     run_hidden_tests: bool = False
+    require_plan_before_edit: bool = True
+    max_plan_revisions: int = Field(default=2, ge=0, le=10, strict=True)
+    plan_min_evidence_files: int = Field(default=1, ge=1, le=50, strict=True)
+    require_hypothesis_before_patch: bool = True
+    require_candidate_files_before_edit: bool = True
+    max_candidate_files: int = Field(default=10, ge=1, le=50, strict=True)
 
     @field_validator("model_provider")
     @classmethod
@@ -123,6 +132,10 @@ class AgentPromptPreview(BaseModel):
 
 
 class AgentRunDetailRead(BaseModel):
+    latest_plan: AgentPlanRead | None = None
+    candidate_files: list[CandidateFileRank] = Field(default_factory=list)
+    hypotheses: list[AgentHypothesisRead] = Field(default_factory=list)
+    active_hypothesis: AgentHypothesisRead | None = None
     id: UUID
     status: str
     benchmark_task_id: UUID

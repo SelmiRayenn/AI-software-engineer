@@ -195,6 +195,12 @@ class AgentRunOrchestrator:
             run_tests_after_patch=run_config.run_tests_after_patch,
             stop_on_first_passing_patch=run_config.stop_on_first_passing_patch,
             include_test_failure_feedback=run_config.include_test_failure_feedback,
+            require_plan_before_edit=run_config.require_plan_before_edit,
+            max_plan_revisions=run_config.max_plan_revisions,
+            plan_min_evidence_files=run_config.plan_min_evidence_files,
+            require_hypothesis_before_patch=run_config.require_hypothesis_before_patch,
+            require_candidate_files_before_edit=run_config.require_candidate_files_before_edit,
+            max_candidate_files=run_config.max_candidate_files,
         )
         prompt_preview = prompts.redacted_preview()
         steps: list[AgentRunTraceStep] = []

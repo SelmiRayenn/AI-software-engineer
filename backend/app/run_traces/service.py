@@ -8,6 +8,7 @@ from uuid import UUID
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from app.agents.planning import latest_run_plan
 from app.agents.prompts import redact_prompt_text
 from app.models import AgentEvent, AgentRun, TestResult
 from app.schemas.run_trace import (
@@ -58,7 +59,18 @@ _HIDDEN_SAFE_KEYS = {
     "hidden_tests_run_count",
     "hidden_tests_failed_count",
 }
-_PATH_KEYS = {"path", "file_path", "files", "files_read", "files_modified", "changed_files"}
+_PATH_KEYS = {
+    "path",
+    "file_path",
+    "files",
+    "files_read",
+    "files_modified",
+    "changed_files",
+    "files_inspected",
+    "files_likely_to_modify",
+    "suspected_files",
+    "ranked_files",
+}
 
 
 class AgentRunTraceService:
@@ -77,7 +89,10 @@ class AgentRunTraceService:
                 .order_by(AgentEvent.created_at.asc(), AgentEvent.id.asc())
             )
         )
+        plan = latest_run_plan(self.db, run.id)
         return AgentRunTraceRead(
+            latest_plan=plan,
+            plan_status=plan.status if plan else "not_submitted",
             run_id=run.id,
             status=run.status,
             events=[self._event_read(event) for event in events],
@@ -297,6 +312,12 @@ def _safe_paths(paths: list[str]) -> list[str]:
 
 
 def _event_severity(event_type: str, payload: dict[str, Any]) -> str:
+    if event_type == "candidate_files_submitted":
+        return "info"
+    if event_type == "hypothesis_submitted":
+        return "warning" if payload.get("status") == "rejected" else "info"
+    if event_type == "plan_submitted":
+        return "info" if payload.get("accepted") is True else "warning"
     event_name = event_type.lower()
     if (
         payload.get("success") is False
@@ -313,6 +334,18 @@ def _event_severity(event_type: str, payload: dict[str, Any]) -> str:
 
 
 def _event_summary(event_type: str, payload: dict[str, Any]) -> str:
+    if event_type == "candidate_files_submitted":
+        ranked_files = payload.get("ranked_files")
+        count = len(ranked_files) if isinstance(ranked_files, list) else 0
+        return f"Submitted {count} ranked candidate file{'s' if count != 1 else ''}"
+    if event_type == "hypothesis_submitted":
+        revision = payload.get("revision", "?")
+        status = payload.get("status", "unknown")
+        confidence = payload.get("confidence", "unknown")
+        return f"Hypothesis revision {revision} {status} ({confidence} confidence)"
+    if event_type == "plan_submitted":
+        status = "accepted" if payload.get("accepted") is True else "rejected"
+        return f"Plan revision {payload.get('revision', '?')} {status}"
     tool_name = _tool_name(payload)
     if event_type == "agent_tool_call" or event_type.startswith("tool_call_"):
         if event_type == "tool_call_requested":

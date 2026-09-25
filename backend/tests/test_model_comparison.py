@@ -59,7 +59,60 @@ class RecordingMock(MockModelProvider):
                     content="",
                     tool_calls=[
                         ModelToolCall(
+                            id="hypothesis",
+                            name="submit_hypothesis",
+                            arguments={
+                                "summary": "Addition subtracts instead of adding",
+                                "suspected_files": ["calculator.py"],
+                                "supporting_evidence": [
+                                    "The inspected return expression uses subtraction"
+                                ],
+                                "confidence": "high",
+                                "status": "active",
+                            },
+                        )
+                    ],
+                ),
+                ModelProviderResponse(
+                    content="",
+                    tool_calls=[
+                        ModelToolCall(
                             id="read", name="read_file", arguments={"file_path": "calculator.py"}
+                        )
+                    ],
+                ),
+                ModelProviderResponse(
+                    content="",
+                    tool_calls=[
+                        ModelToolCall(
+                            id="plan",
+                            name="submit_plan",
+                            arguments={
+                                "issue_summary": "Fix addition",
+                                "suspected_root_cause": "Addition subtracts instead of adding",
+                                "files_inspected": ["calculator.py"],
+                                "files_likely_to_modify": ["calculator.py"],
+                                "test_strategy": "Run configured tests",
+                                "risk_rollback_notes": "Revert the single-file change if needed",
+                            },
+                        )
+                    ],
+                ),
+                ModelProviderResponse(
+                    content="",
+                    tool_calls=[
+                        ModelToolCall(
+                            id="candidates",
+                            name="submit_candidate_files",
+                            arguments={
+                                "ranked_files": [
+                                    {
+                                        "path": "calculator.py",
+                                        "reason": "The inspected implementation contains the defect.",
+                                        "confidence": "high",
+                                    }
+                                ]
+                            },
                         )
                     ],
                 ),
@@ -217,7 +270,7 @@ def task(db: Session) -> BenchmarkTask:
 def payload(*models: str, **options) -> dict:
     return {
         "models": [{"model_provider": "mock", "model_name": name} for name in models],
-        "max_steps": 4,
+        "max_steps": 6,
         "max_tool_errors": 2,
         "command_timeout_seconds": 15,
         "include_issue_comments": False,

@@ -1,4 +1,10 @@
+from app.schemas.agent_candidate_files import (
+    CandidateFileRank,
+    CandidateFilesInput,
+    CandidateFilesSubmission,
+)
 from app.schemas.agent_event import AgentEventCreate, AgentEventRead
+from app.schemas.agent_hypothesis import AgentHypothesisInput, AgentHypothesisRead
 from app.schemas.agent_run import (
     AgentPromptPreview,
     AgentRunConfig,
@@ -57,6 +63,8 @@ from app.schemas.test_result import TestResultCreate, TestResultRead
 __all__ = [
     "AgentEventCreate",
     "AgentEventRead",
+    "AgentHypothesisInput",
+    "AgentHypothesisRead",
     "AgentPromptPreview",
     "AgentRunConfig",
     "AgentRunCreate",
@@ -74,6 +82,9 @@ __all__ = [
     "BenchmarkTaskFromGitHubRequest",
     "BenchmarkTaskRead",
     "BenchmarkTaskValidationResult",
+    "CandidateFileRank",
+    "CandidateFilesInput",
+    "CandidateFilesSubmission",
     "EvaluationMetricCreate",
     "EvaluationMetricRead",
     "GeneratedPatchCreate",

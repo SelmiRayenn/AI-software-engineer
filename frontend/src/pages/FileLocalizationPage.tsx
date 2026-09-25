@@ -15,6 +15,7 @@ import { PageHeader } from "../components/PageHeader";
 import type {
   BenchmarkPack,
   FileLocalizationAnalytics,
+  CandidateHitRateByModel,
   LocalizationByModel,
   LocalizationByRepository,
   MissedGoldFile,
@@ -99,6 +100,14 @@ export function FileLocalizationPage() {
         <Metric label="Top 1" value={formatPercent(data.top1_accuracy)} />
         <Metric label="Top 3" value={formatPercent(data.top3_accuracy)} />
         <Metric label="Top 5" value={formatPercent(data.top5_accuracy)} />
+        <Metric label="Candidate runs" value={String(data.runs_with_candidate_files)} />
+        <Metric label="Candidate top 1" value={formatPercent(data.candidate_top1_accuracy)} />
+        <Metric label="Candidate top 3" value={formatPercent(data.candidate_top3_accuracy)} />
+        <Metric label="Candidate top 5" value={formatPercent(data.candidate_top5_accuracy)} />
+        <Metric
+          label="Average candidates"
+          value={formatMetricNumber(data.average_candidate_count, 2)}
+        />
         <Metric label="Edit precision" value={formatPercent(data.edited_file_precision)} />
         <Metric label="Edit recall" value={formatPercent(data.edited_file_recall)} />
         <Metric
@@ -119,6 +128,7 @@ export function FileLocalizationPage() {
       ) : (
         <div className="localization-panels">
           <ModelTable rows={data.localization_by_model} />
+          <CandidateModelTable rows={data.candidate_hit_rate_by_model} />
           <RepositoryTable rows={data.localization_by_repository} />
           <MissedFilesTable rows={data.most_common_missed_gold_files} />
         </div>
@@ -182,6 +192,7 @@ function RepositoryTable({ rows }: { rows: LocalizationByRepository[] }) {
 
 interface ComparisonRow {
   total_runs_with_gold_files: number;
+  runs_with_candidate_files: number;
   average_file_localization_score: number;
   top1_accuracy: number;
   top3_accuracy: number;
@@ -190,6 +201,10 @@ interface ComparisonRow {
   edited_file_recall: number;
   average_files_read: number;
   average_files_edited: number;
+  candidate_top1_accuracy: number;
+  candidate_top3_accuracy: number;
+  candidate_top5_accuracy: number;
+  average_candidate_count: number;
 }
 
 function ComparisonHeader({ first }: { first: string }) {
@@ -237,6 +252,33 @@ function MissedFilesTable({ rows }: { rows: MissedGoldFile[] }) {
                 <td>{row.missed_run_count}</td>
                 <td>{row.gold_run_count}</td>
                 <td>{formatPercent(row.miss_rate)}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      )}
+    </section>
+  );
+}
+
+function CandidateModelTable({ rows }: { rows: CandidateHitRateByModel[] }) {
+  return (
+    <section className="panel table-panel">
+      <div className="panel-header">
+        <h3>Candidate hit rate by model</h3>
+        <span>{rows.length} configurations</span>
+      </div>
+      {rows.length === 0 ? (
+        <p className="muted">No matching runs submitted candidate file rankings.</p>
+      ) : (
+        <table>
+          <thead><tr><th>Provider / model</th><th>Ranked runs</th><th>Any candidate hit</th></tr></thead>
+          <tbody>
+            {rows.map((row) => (
+              <tr key={`${row.model_provider}:${row.model_name}`}>
+                <td><strong>{row.model_name}</strong><span>{row.model_provider}</span></td>
+                <td>{row.runs_with_candidate_files}</td>
+                <td>{formatPercent(row.candidate_hit_rate)}</td>
               </tr>
             ))}
           </tbody>

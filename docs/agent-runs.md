@@ -14,12 +14,16 @@ Request:
 {
   "model_provider": "mock",
   "model_name": "mock-loop",
-  "max_steps": 4,
+  "max_steps": 6,
   "max_tool_errors": 3,
   "command_timeout_seconds": 120,
   "include_issue_comments": true,
   "enable_test_tool": true,
-  "run_mode": "tool_loop"
+  "run_mode": "tool_loop",
+  "require_plan_before_edit": true,
+  "require_hypothesis_before_patch": true,
+  "require_candidate_files_before_edit": true,
+  "max_candidate_files": 10
 }
 ```
 
@@ -33,12 +37,18 @@ Every start request is validated as an `AgentRunConfig`:
 | --- | --- | --- |
 | `model_provider` | `mock` | Non-empty provider registered by the provider factory |
 | `model_name` | provider default | Stored as the resolved model name |
-| `max_steps` | `4` | Between 1 and 50 model/tool steps |
+| `max_steps` | `6` | Between 1 and 50 model/tool steps |
 | `max_tool_errors` | `3` | Between 1 and 20 cumulative tool failures |
 | `command_timeout_seconds` | `120` | Between 1 and 600 seconds |
 | `include_issue_comments` | `true` | Includes public issue comments in model context |
 | `enable_test_tool` | `true` | Advertises and registers `run_tests` for the model |
 | `run_mode` | `tool_loop` | `tool_loop` or deterministic `scripted` mode |
+| `require_plan_before_edit` | `true` | Gates `write_file` and `submit_patch` on an accepted plan |
+| `max_plan_revisions` | `2` | 0-10 additional plan submissions after the initial plan |
+| `plan_min_evidence_files` | `1` | 1-50 distinct files actually retrieved, matched, or read |
+| `require_hypothesis_before_patch` | `true` | Requires an active/confirmed diagnosis before `submit_patch` |
+| `require_candidate_files_before_edit` | `true` | Requires an evidence-backed ranking before `write_file` |
+| `max_candidate_files` | `10` | Between 1 and 50 ranked candidates per submission |
 
 `scripted` mode requires the mock provider. It uses the mock provider's deterministic tool sequence
 and is intended for development, smoke tests, and reproducible demonstrations. `tool_loop` consumes
@@ -57,12 +67,16 @@ Both the start response and `GET /agent-runs/{run_id}` include:
   "run_config": {
     "model_provider": "mock",
     "model_name": "mock-loop",
-    "max_steps": 4,
+    "max_steps": 6,
     "max_tool_errors": 3,
     "command_timeout_seconds": 120,
     "include_issue_comments": true,
     "enable_test_tool": true,
-    "run_mode": "tool_loop"
+    "run_mode": "tool_loop",
+    "require_plan_before_edit": true,
+    "require_hypothesis_before_patch": true,
+    "require_candidate_files_before_edit": true,
+    "max_candidate_files": 10
   },
   "prompt_preview": {
     "system_prompt": "...",
@@ -122,7 +136,11 @@ GET /agent-runs/{run_id}
 
 The detail endpoint returns the run status, model provider/name, timestamps, linked benchmark task
 issue title, repository owner/name/url, generated patch review status, generated patch changed
-files, and metric summary when metrics exist.
+files, and metric summary when metrics exist. `latest_plan` contains the latest submitted plan,
+revision, acceptance status, rejection reason, and timestamp, or null when no plan was submitted.
+See [planning policy](agent-loop.md#evidence-grounded-planning) for evidence checks and bounds.
+The ordered `hypotheses` list preserves diagnostic revisions, while `active_hypothesis` identifies
+the current active/confirmed diagnosis or is null. No hypothesis response includes gold data.
 
 This response is safe for the dashboard and agent-facing review UI. It does not include
 `GoldPatch.patch_text` or hidden gold changed files.

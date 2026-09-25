@@ -1190,3 +1190,59 @@ select {
     white-space: normal;
   }
 }
+/* The plan remains an unframed, responsive part of the run detail view. */
+.agent-plan-section {
+  min-width: 0;
+  padding: 20px 0;
+  border-block: 1px solid #d5dce0;
+}
+
+.agent-hypothesis-section {
+  min-width: 0;
+  padding: 20px 0;
+  border-bottom: 1px solid #d5dce0;
+}
+
+.agent-candidate-section {
+  min-width: 0;
+  padding: 20px 0;
+  border-bottom: 1px solid #d5dce0;
+}
+
+.candidate-file-list { display: grid; gap: 0; margin: 0; padding: 0; list-style: none; }
+.candidate-file-list li { display: grid; grid-template-columns: 32px minmax(0, 1fr); gap: 12px; padding: 14px 0; border-top: 1px solid #e2e7ea; }
+.candidate-rank { display: grid; place-items: center; width: 28px; height: 28px; border: 1px solid #b8c3ca; font-variant-numeric: tabular-nums; }
+.candidate-file-heading { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.candidate-file-heading code { overflow-wrap: anywhere; }
+.candidate-file-list p { margin: 6px 0 0; color: #53616c; overflow-wrap: anywhere; }
+.candidate-confidence { font-size: 12px; font-weight: 700; text-transform: uppercase; }
+.confidence-high { color: #166344; }
+.confidence-medium { color: #805b00; }
+.confidence-low { color: #6a4b4f; }
+
+.hypothesis-current { margin: 0 0 16px; font-weight: 700; }
+.hypothesis-timeline { display: grid; gap: 0; margin: 0; padding: 0; list-style: none; }
+.hypothesis-entry { min-width: 0; padding: 16px 0; border-top: 1px solid #e2e7ea; }
+.hypothesis-entry p { margin: 10px 0; overflow-wrap: anywhere; }
+.hypothesis-heading { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.hypothesis-details { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; }
+.hypothesis-details dt { margin-bottom: 5px; font-size: 13px; color: #53616c; }
+.hypothesis-details dd { margin: 0; overflow-wrap: anywhere; }
+.hypothesis-details ul { margin: 0; padding-left: 20px; }
+.status-confirmed { color: #166344; background: #e5f3ec; }
+.status-revised { color: #4e5961; background: #edf0f2; }
+.status-rejected { color: #8b2635; background: #f8e7e9; }
+
+.plan-status { display: flex; gap: 12px; align-items: center; flex-wrap: wrap; }
+.agent-plan-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 20px 32px; }
+.agent-plan-grid > div { min-width: 0; }
+.agent-plan-grid dt { font-size: 13px; color: #53616c; margin-bottom: 6px; }
+.agent-plan-grid dd { margin: 0; white-space: pre-wrap; overflow-wrap: anywhere; }
+.agent-plan-grid ul { margin: 0; padding-left: 20px; }
+.plan-rejection { color: #a22c37; overflow-wrap: anywhere; }
+.status-accepted { color: #166344; background: #e5f3ec; }
+
+@media (max-width: 700px) {
+  .agent-plan-grid { grid-template-columns: minmax(0, 1fr); }
+  .hypothesis-details { grid-template-columns: minmax(0, 1fr); }
+}

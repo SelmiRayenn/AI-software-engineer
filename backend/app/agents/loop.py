@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import json
-import re
 import time
 from collections.abc import Callable, Sequence
 from dataclasses import asdict, dataclass, is_dataclass
@@ -10,6 +9,9 @@ from uuid import UUID
 
 from sqlalchemy.orm import Session
 
+from app.agents.candidate_files import AgentCandidateFilesService
+from app.agents.hypotheses import AgentHypothesisService
+from app.agents.planning import AgentPlanningService
 from app.agents.prompts import RenderedAgentPrompts, redact_prompt_text, render_agent_prompts
 from app.agents.repairs import AgentRepairService
 from app.agents.tools import (
@@ -41,6 +43,9 @@ from app.model_providers import (
     ToolDefinition,
 )
 from app.models import AgentEvent, AgentRun, BenchmarkTask, Repository
+from app.schemas.agent_candidate_files import CandidateFilesInput
+from app.schemas.agent_hypothesis import AgentHypothesisInput
+from app.schemas.agent_plan import AgentPlanInput
 from app.schemas.agent_run import AgentRunConfig, AgentRunTraceStep
 
 BASE_TOOL_NAMES = (
@@ -50,6 +55,9 @@ BASE_TOOL_NAMES = (
     "read_file",
     "write_file",
     "get_diff",
+    "submit_candidate_files",
+    "submit_plan",
+    "submit_hypothesis",
     "submit_patch",
 )
 
@@ -118,7 +126,7 @@ class AgentLoop:
         config = config or AgentRunConfig(
             model_provider=provider.provider_name,
             model_name=provider.model_name,
-            max_steps=4 if max_steps is None else max_steps,
+            max_steps=6 if max_steps is None else max_steps,
             max_tool_errors=max_tool_errors,
         )
         max_steps = config.max_steps
@@ -138,6 +146,9 @@ class AgentLoop:
         self._repairs = repairs
         self._max_steps = max_steps
         self._max_tool_errors = max_tool_errors
+        self._planning = AgentPlanningService(db, agent_run.id, tools, config)
+        self._candidate_files = AgentCandidateFilesService(db, agent_run.id, tools, config)
+        self._hypotheses = AgentHypothesisService(db, agent_run.id, tools)
         self._contracts = self._build_tool_contracts()
         self._prompts = prompts or render_agent_prompts(
             task=benchmark_task,
@@ -154,6 +165,12 @@ class AgentLoop:
             run_tests_after_patch=config.run_tests_after_patch,
             stop_on_first_passing_patch=config.stop_on_first_passing_patch,
             include_test_failure_feedback=config.include_test_failure_feedback,
+            require_plan_before_edit=config.require_plan_before_edit,
+            max_plan_revisions=config.max_plan_revisions,
+            plan_min_evidence_files=config.plan_min_evidence_files,
+            require_hypothesis_before_patch=config.require_hypothesis_before_patch,
+            require_candidate_files_before_edit=config.require_candidate_files_before_edit,
+            max_candidate_files=config.max_candidate_files,
         )
 
     def build_initial_messages(self) -> list[ModelMessage]:
@@ -234,7 +251,7 @@ class AgentLoop:
                         tool_errors=tool_errors,
                     )
 
-                request_payload = _raw_tool_call_payload(raw_tool_call)
+                request_payload = _logged_tool_call(raw_tool_call)
                 self._log_event(
                     "tool_call_requested",
                     {
@@ -246,6 +263,12 @@ class AgentLoop:
                 submission_started = False
                 try:
                     tool_call = self._parse_tool_call(raw_tool_call)
+                    self._planning.check_edit(tool_call.name)
+                    self._candidate_files.check_edit(tool_call.name)
+                    if tool_call.name == "submit_patch":
+                        self._hypotheses.require_for_patch(
+                            enabled=self._config.require_hypothesis_before_patch
+                        )
                     if self._repairs and tool_call.name == "submit_patch":
                         self._repairs.begin_attempt()
                         submission_started = True
@@ -325,6 +348,8 @@ class AgentLoop:
 
                 duration = time.perf_counter() - started
                 steps.append(_trace_step(tool_call.name, result, duration))
+                self._planning.observe(tool_call.name, steps[-1].files_read)
+                self._candidate_files.observe(tool_call.name, steps[-1].files_read)
                 result_payload = _result_payload(result)
                 self._log_event(
                     "tool_call_completed",
@@ -467,6 +492,36 @@ class AgentLoop:
                 input_schema=_object_schema(),
             ),
             ToolDefinition(
+                name="submit_candidate_files",
+                description=(
+                    "Rank the files most likely to require changes before write_file. Every path "
+                    "must have been read or returned by retrieve_relevant_files in this run."
+                ),
+                input_schema={
+                    **CandidateFilesInput.model_json_schema(),
+                    "properties": {
+                        **CandidateFilesInput.model_json_schema().get("properties", {}),
+                        "ranked_files": {
+                            **CandidateFilesInput.model_json_schema()["properties"]["ranked_files"],
+                            "maxItems": self._config.max_candidate_files,
+                        },
+                    },
+                },
+            ),
+            ToolDefinition(
+                name="submit_plan",
+                description="Submit an evidence-grounded plan before write_file or submit_patch. Rejections require revision.",
+                input_schema=AgentPlanInput.model_json_schema(),
+            ),
+            ToolDefinition(
+                name="submit_hypothesis",
+                description=(
+                    "Record or revise a bounded root-cause hypothesis. An active or confirmed "
+                    "hypothesis is required before submit_patch when the run policy enables it."
+                ),
+                input_schema=AgentHypothesisInput.model_json_schema(),
+            ),
+            ToolDefinition(
                 name="submit_patch",
                 description="Submit the current diff for validation and configured tests; inspect repair feedback if returned.",
                 input_schema=_object_schema(),
@@ -492,6 +547,9 @@ class AgentLoop:
 
     def _build_tool_contracts(self) -> dict[str, _ToolContract]:
         contracts = {
+            "submit_candidate_files": _ToolContract(self._candidate_files.submit, {}, {}),
+            "submit_plan": _ToolContract(self._planning.submit, {}, {}),
+            "submit_hypothesis": _ToolContract(self._hypotheses.submit, {}, {}),
             "retrieve_relevant_files": _ToolContract(
                 self._tools.retrieve_relevant_files,
                 {"query": str},
@@ -541,6 +599,10 @@ class AgentLoop:
         if name not in self._contracts:
             raise UnknownToolError(f"Unknown tool: {name}")
 
+        if name in {"submit_candidate_files", "submit_plan", "submit_hypothesis"}:
+            # Domain validators return safer errors than echoing malformed model arguments.
+            return _ParsedToolCall(id=tool_call_id, name=name, arguments=dict(arguments))
+
         contract = self._contracts[name]
         allowed_arguments = set(contract.required) | set(contract.optional)
         unexpected = sorted(set(arguments) - allowed_arguments)
@@ -570,7 +632,7 @@ class AgentLoop:
         return self._contracts[tool_call.name].handler(**tool_call.arguments)
 
     def _log_model_response(self, response: ModelProviderResponse, *, step: int) -> None:
-        tool_calls = [_raw_tool_call_payload(call) for call in _response_tool_calls(response)]
+        tool_calls = [_logged_tool_call(call) for call in _response_tool_calls(response)]
         payload = {
             "step": step,
             "success": True,
@@ -718,6 +780,22 @@ def _raw_tool_name(raw_tool_call: Any) -> str:
     return "malformed_tool_call"
 
 
+def _logged_tool_call(raw_tool_call: Any) -> dict[str, Any]:
+    tool_name = _raw_tool_name(raw_tool_call)
+    if tool_name in {"submit_candidate_files", "submit_plan", "submit_hypothesis"}:
+        event_type = {
+            "submit_candidate_files": "candidate_files_submitted",
+            "submit_plan": "plan_submitted",
+            "submit_hypothesis": "hypothesis_submitted",
+        }[tool_name]
+        return {
+            "id": _raw_tool_call_id(raw_tool_call),
+            "name": tool_name,
+            "arguments": f"[Validated, redacted data stored in {event_type}]",
+        }
+    return _raw_tool_call_payload(raw_tool_call)
+
+
 def _raw_tool_call_id(raw_tool_call: Any) -> str | None:
     if isinstance(raw_tool_call, ModelToolCall):
         return raw_tool_call.id if isinstance(raw_tool_call.id, str) else None
@@ -754,6 +832,18 @@ def _result_payload(result: Any) -> dict[str, Any]:
 
 
 def _result_summary(result: Any) -> dict[str, Any]:
+    if isinstance(result, dict) and "ranked_files" in result:
+        return {
+            "candidate_count": len(result["ranked_files"]),
+            "ranked_files": [
+                {"path": item["path"], "confidence": item["confidence"]}
+                for item in result["ranked_files"]
+            ],
+        }
+    if isinstance(result, dict) and "confidence" in result and "revision" in result:
+        return {key: result[key] for key in ("revision", "status", "confidence", "suspected_files")}
+    if isinstance(result, dict) and "revision" in result:
+        return {key: result[key] for key in ("revision", "accepted", "status")}
     if isinstance(result, RelevantFilesResult):
         return {
             "result_count": len(result.files),
@@ -854,13 +944,4 @@ def _sanitize_for_log(value: Any) -> Any:
 
 
 def _redact_secret_patterns(value: str) -> str:
-    redacted = re.sub(
-        r"(?i)\b(bearer\s+)[A-Za-z0-9._~+/=-]+",
-        r"\1[REDACTED]",
-        value,
-    )
-    return re.sub(
-        r"\b(?:sk-[A-Za-z0-9_-]{8,}|gh[pousr]_[A-Za-z0-9_]{8,})\b",
-        "[REDACTED]",
-        redacted,
-    )
+    return redact_prompt_text(value)

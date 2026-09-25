@@ -22,7 +22,7 @@ class ComparisonModel(BaseModel):
 
 class ModelComparisonRequest(BaseModel):
     models: list[ComparisonModel] = Field(min_length=2, max_length=10)
-    max_steps: int = Field(default=4, ge=1, le=50)
+    max_steps: int = Field(default=6, ge=1, le=50)
     max_tool_errors: int = Field(default=3, ge=1, le=20)
     command_timeout_seconds: int = Field(default=120, ge=1, le=600)
     include_issue_comments: bool = True
@@ -32,6 +32,12 @@ class ModelComparisonRequest(BaseModel):
     run_tests_after_patch: bool = True
     stop_on_first_passing_patch: bool = True
     include_test_failure_feedback: bool = True
+    require_plan_before_edit: bool = True
+    max_plan_revisions: int = Field(default=2, ge=0, le=10, strict=True)
+    plan_min_evidence_files: int = Field(default=1, ge=1, le=50, strict=True)
+    require_hypothesis_before_patch: bool = True
+    require_candidate_files_before_edit: bool = True
+    max_candidate_files: int = Field(default=10, ge=1, le=50, strict=True)
 
     model_config = ConfigDict(extra="forbid")
 

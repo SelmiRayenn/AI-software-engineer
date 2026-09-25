@@ -139,12 +139,21 @@ localization_score = inspected_gold_files / gold_changed_files
 edited_precision = edited_gold_files / generated_patch_changed_files
 edited_recall = edited_gold_files / gold_changed_files
 top_k_hit = any gold file appears in the first k unique inspected paths
+candidate_top_k_hit = any gold file appears in the first k submitted candidate paths
 ```
 
 An absent generated patch produces zero edit precision and recall. A run with no inspected files
 remains eligible and contributes zero localization and top-k hits. Overall and grouped values are
 macro averages across eligible runs, so large patches do not outweigh small ones. Top-1, top-3,
 and top-5 accuracy are the fractions of eligible runs with a hit at each cutoff.
+
+Candidate rankings come from the latest valid `candidate_files_submitted` event before the first
+write or patch submission. Candidate top-1, top-3, and top-5 accuracy use only eligible runs that
+submitted a non-empty ranking, so historical runs without this feature do not count as misses.
+`runs_with_candidate_files` exposes that denominator and `average_candidate_count` is calculated
+over the same runs. `candidate_hit_rate_by_model` reports whether any submitted candidate matched a
+gold file, grouped by provider/model. Candidate paths are never shown to the agent alongside gold
+paths; the comparison occurs only in trusted analytics.
 
 Model rows group by the exact provider/model pair. Repository rows retain repository identity.
 Missed gold paths are grouped by repository and path, ordered by missed-run count and then name;
@@ -161,8 +170,8 @@ The React dashboard exposes the aggregate APIs through four engineering-focused 
   score.
 - `/tool-usage` shows call volume and error metrics, most-used and most-failed tools, error
   categories, and provider/model error rates.
-- `/file-localization` shows localization accuracy, top-k hits, edit precision/recall, model and
-  repository comparisons, and commonly missed gold paths.
+- `/file-localization` shows inspection and candidate-ranking top-k accuracy, candidate hit rate by
+  model, edit precision/recall, model and repository comparisons, and commonly missed gold paths.
 
 All pages include provider, repository, and benchmark-pack filters plus explicit loading, empty,
 and error states. The provider selector on the leaderboard filters the returned rows in the

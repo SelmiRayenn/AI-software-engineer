@@ -15,6 +15,8 @@ def test_prompt_rendering_includes_issue_repository_tools_and_constraints() -> N
             "list_files",
             "read_file",
             "run_tests",
+            "submit_hypothesis",
+            "submit_candidate_files",
             "submit_patch",
         ],
         configured_test_commands=["pytest -q"],
@@ -32,6 +34,8 @@ def test_prompt_rendering_includes_issue_repository_tools_and_constraints() -> N
     assert "Please preserve backwards compatibility" in prompts.issue_context_prompt
     assert "- run_tests" in prompts.tool_use_instructions
     assert "- retrieve_relevant_files" in prompts.tool_use_instructions
+    assert "- submit_hypothesis" in prompts.tool_use_instructions
+    assert "- submit_candidate_files" in prompts.tool_use_instructions
     assert "retrieve_relevant_files before broad listing" in prompts.tool_use_instructions
     assert "Inspect retrieved files before editing" in prompts.developer_safety_prompt
     assert "prefer small targeted changes" in prompts.developer_safety_prompt
@@ -44,6 +48,11 @@ def test_prompt_rendering_includes_issue_repository_tools_and_constraints() -> N
     )
     assert "Lockfile changes: blocked" in prompts.developer_safety_prompt
     assert "Dependency manifest changes: blocked" in prompts.developer_safety_prompt
+    assert "Require an active or confirmed root-cause hypothesis before patch submission" in (
+        prompts.developer_safety_prompt
+    )
+    assert "After failed tests, reconsider the" in prompts.developer_safety_prompt
+    assert "Maximum ranked candidate files: 10" in prompts.developer_safety_prompt
     assert '"name": "submit_patch"' in prompts.patch_submission_instructions
 
 

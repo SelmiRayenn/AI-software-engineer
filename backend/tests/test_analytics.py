@@ -249,6 +249,34 @@ def add_inspections(
         )
 
 
+def add_candidates(
+    db: Session,
+    run: AgentRun,
+    file_paths: list[str],
+    *,
+    created_at: datetime | None = None,
+) -> None:
+    db.add(
+        AgentEvent(
+            agent_run_id=run.id,
+            event_type="candidate_files_submitted",
+            payload_json={
+                "tool_name": "submit_candidate_files",
+                "ranked_files": [
+                    {
+                        "path": file_path,
+                        "reason": "Ranked from repository evidence.",
+                        "confidence": "medium",
+                    }
+                    for file_path in file_paths
+                ],
+                "created_at": (created_at or datetime(2026, 1, 15, 12, 0, tzinfo=UTC)).isoformat(),
+            },
+            created_at=created_at or datetime(2026, 1, 15, 12, 0, tzinfo=UTC),
+        )
+    )
+
+
 def seed_public_demo_runs(db: Session):
     first_task = create_task(db, "public-owner", "public-repo")
     second_task = create_task(db, "other-owner", "other-repo")
@@ -771,6 +799,42 @@ def test_file_localization_top_k_uses_first_unique_inspection_order(
     assert payload["top5_accuracy"] == 1.0
     assert payload["average_files_read"] == 3.0
     assert payload["localization_by_model"][0]["top3_accuracy"] == pytest.approx(2 / 3, abs=1e-6)
+
+
+def test_file_localization_candidate_top_k_and_model_hit_rate(client: TestClient) -> None:
+    with TestingSessionLocal() as db:
+        task = create_task(db, "acme", "candidate-ranking")
+        add_gold_patch(db, task, ["src/target.py"])
+        first = create_run(db, task, provider="mock", model="candidate-model", metric_values={})
+        third = create_run(db, task, provider="mock", model="candidate-model", metric_values={})
+        fifth = create_run(db, task, provider="mock", model="candidate-model", metric_values={})
+        add_candidates(db, first, ["src/target.py"])
+        add_candidates(db, third, ["src/a.py", "src/b.py", "src/target.py"])
+        add_candidates(
+            db,
+            fifth,
+            ["src/a.py", "src/b.py", "src/c.py", "src/d.py", "src/target.py"],
+        )
+        db.commit()
+
+    payload = client.get("/analytics/file-localization").json()
+
+    assert payload["runs_with_candidate_files"] == 3
+    assert payload["candidate_top1_accuracy"] == pytest.approx(1 / 3, abs=1e-6)
+    assert payload["candidate_top3_accuracy"] == pytest.approx(2 / 3, abs=1e-6)
+    assert payload["candidate_top5_accuracy"] == 1.0
+    assert payload["average_candidate_count"] == 3.0
+    assert payload["localization_by_model"][0]["candidate_top3_accuracy"] == pytest.approx(
+        2 / 3, abs=1e-6
+    )
+    assert payload["candidate_hit_rate_by_model"] == [
+        {
+            "model_provider": "mock",
+            "model_name": "candidate-model",
+            "runs_with_candidate_files": 3,
+            "candidate_hit_rate": 1.0,
+        }
+    ]
 
 
 def test_file_localization_calculates_edited_precision_and_recall(

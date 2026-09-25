@@ -590,6 +590,34 @@ def test_orchestrated_hidden_tests_use_final_patch_and_never_enter_model_context
 
     provider = ObservingMock(
         responses=[
+            response("read_file", file_path="calculator.py"),
+            response(
+                "submit_plan",
+                issue_summary="Repair addition",
+                suspected_root_cause="Addition needs a targeted correction",
+                files_inspected=["calculator.py"],
+                files_likely_to_modify=["calculator.py"],
+                test_strategy="Run configured visible tests",
+                risk_rollback_notes="Revert the single-file diff if needed",
+            ),
+            response(
+                "submit_hypothesis",
+                summary="Addition requires a correction in calculator.py",
+                suspected_files=["calculator.py"],
+                supporting_evidence=["The implementation was inspected before editing"],
+                confidence="high",
+                status="active",
+            ),
+            response(
+                "submit_candidate_files",
+                ranked_files=[
+                    {
+                        "path": "calculator.py",
+                        "reason": "The inspected implementation contains the reported defect",
+                        "confidence": "high",
+                    }
+                ],
+            ),
             response(
                 "write_file",
                 file_path="calculator.py",
@@ -609,7 +637,7 @@ def test_orchestrated_hidden_tests_use_final_patch_and_never_enter_model_context
         create=lambda *args, **kwargs: provider
     )
     endpoint = "start-trusted" if trusted else "start"
-    config = {"max_steps": 8, "max_repair_attempts": 1, "stop_on_first_passing_patch": False}
+    config = {"max_steps": 9, "max_repair_attempts": 1, "stop_on_first_passing_patch": False}
     if trusted:
         config["run_hidden_tests"] = True
     result = client.post(
@@ -619,7 +647,7 @@ def test_orchestrated_hidden_tests_use_final_patch_and_never_enter_model_context
     data = result.json()
     assert data["status"] == "completed", result.text
     assert HIDDEN_MARKER not in result.text
-    assert provider.calls == 4
+    assert provider.calls == 8
     run = db.get(AgentRun, UUID(data["id"]))
     assert len(run.generated_patches) == 2
     assert run.final_patch_id == run.generated_patches[0].id

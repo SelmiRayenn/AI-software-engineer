@@ -6,6 +6,9 @@ from pydantic import ValidationError
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from app.agents.candidate_files import latest_run_candidate_files
+from app.agents.hypotheses import active_run_hypothesis, run_hypotheses
+from app.agents.planning import latest_run_plan
 from app.db.session import get_db
 from app.failures import AgentRunFailureNotFoundError, FailureClassificationService
 from app.models import AgentEvent, AgentRun
@@ -41,6 +44,10 @@ def get_agent_run_detail(run_id: UUID, db: DbSession = None) -> AgentRunDetailRe
     run_config, prompt_preview = _stored_run_context(db, run.id)
 
     return AgentRunDetailRead(
+        latest_plan=latest_run_plan(db, run.id),
+        candidate_files=latest_run_candidate_files(db, run.id),
+        hypotheses=run_hypotheses(db, run.id),
+        active_hypothesis=active_run_hypothesis(db, run.id),
         id=run.id,
         status=run.status,
         benchmark_task_id=run.benchmark_task_id,

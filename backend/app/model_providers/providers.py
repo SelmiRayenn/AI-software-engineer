@@ -60,7 +60,7 @@ class MockModelProvider:
         tool_calls = (
             list(self._tool_calls)
             if self._tool_calls_configured
-            else self._default_tool_calls(messages)
+            else self._default_tool_calls(messages, tools)
         )
         self._response_index += 1
         input_tokens = _estimate_tokens_from_messages(messages)
@@ -82,11 +82,11 @@ class MockModelProvider:
             },
         )
 
-    def _default_tool_calls(self, messages: Sequence[ModelMessage]) -> list[ModelToolCall]:
+    def _default_tool_calls(
+        self, messages: Sequence[ModelMessage], tools: Sequence[ToolDefinition] | None = None
+    ) -> list[ModelToolCall]:
         call_number = self._response_index + 1
         if call_number == 1:
-            return [ModelToolCall(id="mock-list-files", name="list_files")]
-        if call_number == 2:
             return [
                 ModelToolCall(
                     id="mock-read-file",
@@ -94,7 +94,57 @@ class MockModelProvider:
                     arguments={"file_path": _mock_read_target(messages)},
                 )
             ]
-        if call_number == 3:
+        if call_number == 2:
+            calls: list[ModelToolCall] = []
+            if any(tool.name == "submit_plan" for tool in tools or []):
+                calls.append(
+                    ModelToolCall(
+                        id="mock-submit-plan",
+                        name="submit_plan",
+                        arguments={
+                            "issue_summary": "Inspect the reported issue in this deterministic mock run.",
+                            "suspected_root_cause": "Not established; mock mode proposes no code changes.",
+                            "files_inspected": [_mock_read_target(messages)],
+                            "files_likely_to_modify": [],
+                            "test_strategy": "Use the configured baseline and post-patch tests.",
+                            "risk_rollback_notes": "No-op patch; no source changes to revert.",
+                        },
+                    )
+                )
+            if any(tool.name == "submit_hypothesis" for tool in tools or []):
+                calls.append(
+                    ModelToolCall(
+                        id="mock-submit-hypothesis",
+                        name="submit_hypothesis",
+                        arguments={
+                            "summary": "Mock mode found no source change to make.",
+                            "suspected_files": [_mock_read_target(messages)],
+                            "supporting_evidence": [
+                                "The inspected file provides context for the deterministic no-op run."
+                            ],
+                            "confidence": "low",
+                            "status": "active",
+                        },
+                    )
+                )
+            if any(tool.name == "submit_candidate_files" for tool in tools or []):
+                calls.append(
+                    ModelToolCall(
+                        id="mock-submit-candidate-files",
+                        name="submit_candidate_files",
+                        arguments={
+                            "ranked_files": [
+                                {
+                                    "path": _mock_read_target(messages),
+                                    "reason": "This is the file inspected by the deterministic mock run.",
+                                    "confidence": "low",
+                                }
+                            ]
+                        },
+                    )
+                )
+            if calls:
+                return calls
             return [ModelToolCall(id="mock-get-diff", name="get_diff")]
         return [ModelToolCall(id="mock-submit-patch", name="submit_patch")]
 

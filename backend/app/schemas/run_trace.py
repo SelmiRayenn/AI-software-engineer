@@ -4,6 +4,8 @@ from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict
 
+from app.schemas.agent_plan import AgentPlanRead
+
 
 class AgentRunTraceEvent(BaseModel):
     id: UUID
@@ -60,6 +62,8 @@ class TraceMetricSummary(BaseModel):
 
 
 class AgentRunTraceRead(BaseModel):
+    latest_plan: AgentPlanRead | None = None
+    plan_status: Literal["not_submitted", "accepted", "rejected"] = "not_submitted"
     run_id: UUID
     status: str
     events: list[AgentRunTraceEvent]

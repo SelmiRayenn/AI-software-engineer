@@ -99,6 +99,7 @@ class ToolUsageAnalytics(BaseModel):
 
 class LocalizationMetricSet(BaseModel):
     total_runs_with_gold_files: int = 0
+    runs_with_candidate_files: int = 0
     average_file_localization_score: float = 0.0
     top1_accuracy: float = 0.0
     top3_accuracy: float = 0.0
@@ -107,6 +108,17 @@ class LocalizationMetricSet(BaseModel):
     edited_file_recall: float = 0.0
     average_files_read: float = 0.0
     average_files_edited: float = 0.0
+    candidate_top1_accuracy: float = 0.0
+    candidate_top3_accuracy: float = 0.0
+    candidate_top5_accuracy: float = 0.0
+    average_candidate_count: float = 0.0
+
+
+class CandidateHitRateByModel(BaseModel):
+    model_provider: str
+    model_name: str
+    runs_with_candidate_files: int
+    candidate_hit_rate: float
 
 
 class MissedGoldFile(BaseModel):
@@ -134,3 +146,4 @@ class FileLocalizationAnalytics(LocalizationMetricSet):
     most_common_missed_gold_files: list[MissedGoldFile] = Field(default_factory=list)
     localization_by_model: list[LocalizationByModel] = Field(default_factory=list)
     localization_by_repository: list[LocalizationByRepository] = Field(default_factory=list)
+    candidate_hit_rate_by_model: list[CandidateHitRateByModel] = Field(default_factory=list)

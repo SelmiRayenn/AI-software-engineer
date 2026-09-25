@@ -125,6 +125,10 @@ def harness(tmp_path: Path):
                         "max_steps": 10,
                         "max_repair_attempts": 1,
                         "enable_test_tool": False,
+                        # Legacy repair cases isolate patch budgets from planning steps.
+                        "require_plan_before_edit": False,
+                        "require_hypothesis_before_patch": False,
+                        "require_candidate_files_before_edit": False,
                         **config,
                     },
                 )
@@ -143,6 +147,54 @@ def event_payloads(h, kind):
     return [
         event.payload_json for event in h.db.scalars(select(AgentEvent)) if event.event_type == kind
     ]
+
+
+def test_accepted_plan_remains_in_effect_across_patch_repairs(harness):
+    h = harness
+    result = h.start(
+        [
+            call("read_file", file_path="calculator.py"),
+            call(
+                "submit_plan",
+                issue_summary="Repair addition",
+                suspected_root_cause="Addition currently subtracts",
+                files_inspected=["calculator.py"],
+                files_likely_to_modify=["calculator.py"],
+                test_strategy="Run the configured addition test",
+                risk_rollback_notes="Revert the one-line change if necessary",
+            ),
+            call(
+                "submit_hypothesis",
+                summary="Addition subtracts instead of adding",
+                suspected_files=["calculator.py"],
+                supporting_evidence=["The inspected implementation returns a - b"],
+                confidence="high",
+                status="active",
+            ),
+            *candidate(WRONG),
+            call(
+                "submit_hypothesis",
+                summary="The first correction was incomplete and still fails the configured test",
+                suspected_files=["calculator.py"],
+                supporting_evidence=["Post-patch test feedback rejected the first candidate"],
+                confidence="high",
+                status="confirmed",
+            ),
+            *candidate(GOOD),
+        ],
+        require_plan_before_edit=True,
+        require_hypothesis_before_patch=True,
+    )
+    assert result["status"] == "completed"
+    assert result["repair_attempts_used"] == 1
+    assert len(event_payloads(h, "plan_submitted")) == 1
+    assert event_payloads(h, "plan_submitted")[0]["accepted"] is True
+    hypotheses = event_payloads(h, "hypothesis_submitted")
+    assert [(item["revision"], item["status"]) for item in hypotheses] == [
+        (1, "revised"),
+        (2, "confirmed"),
+    ]
+    assert h.run.evaluation_metric.tests_passed is True
 
 
 def test_first_patch_passes_without_retry(harness):

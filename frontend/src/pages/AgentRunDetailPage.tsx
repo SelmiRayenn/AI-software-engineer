@@ -8,7 +8,10 @@ import {
   getRunTrace,
   rejectPatch,
 } from "../api";
+import { AgentCandidateFilesSection } from "../components/AgentCandidateFilesSection";
 import { ErrorState, LoadingState } from "../components/DataState";
+import { AgentHypothesisSection } from "../components/AgentHypothesisSection";
+import { AgentPlanSection } from "../components/AgentPlanSection";
 import { PageHeader } from "../components/PageHeader";
 import { StatusBadge } from "../components/StatusBadge";
 import type {
@@ -296,12 +299,22 @@ export function AgentRunDetailPage({ runId, onNavigate }: AgentRunDetailPageProp
         </article>
       </section>
 
+      <AgentPlanSection plan={state.run.latest_plan} />
+      <AgentCandidateFilesSection candidates={state.run.candidate_files} />
+      <AgentHypothesisSection
+        hypotheses={state.run.hypotheses}
+        activeHypothesis={state.run.active_hypothesis}
+      />
+
       <section className="panel" id="run-trace">
         <div className="panel-header">
           <h3>Run Trace</h3>
           <span>{filteredTraceEvents.length}/{state.trace.events.length} events</span>
         </div>
         <nav className="trace-quick-links" aria-label="Run artifact links">
+          <a href="#agent-plan">Plan ({state.trace.plan_status.replace(/_/g, " ")})</a>
+          <a href="#agent-candidate-files">Candidates ({state.run.candidate_files.length})</a>
+          <a href="#agent-hypotheses">Hypotheses ({state.run.hypotheses.length})</a>
           <a href="#generated-patch">Patch ({state.trace.generated_patches.length})</a>
           <a href="#test-results">Tests ({state.trace.test_phases.length} phases)</a>
           <a href="#evaluation-metrics">Metrics ({state.trace.metrics ? "ready" : "pending"})</a>

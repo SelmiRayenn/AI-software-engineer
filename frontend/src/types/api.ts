@@ -91,6 +91,10 @@ export interface AgentRunMetricSummary {
 }
 
 export interface AgentRunDetail {
+  latest_plan: AgentPlan | null;
+  candidate_files: CandidateFile[];
+  hypotheses: AgentHypothesis[];
+  active_hypothesis: AgentHypothesis | null;
   id: UUID;
   status: string;
   benchmark_task_id: UUID;
@@ -110,6 +114,12 @@ export interface AgentRunDetail {
 }
 
 export interface AgentRunConfig {
+  require_plan_before_edit: boolean;
+  max_plan_revisions: number;
+  plan_min_evidence_files: number;
+  require_hypothesis_before_patch: boolean;
+  require_candidate_files_before_edit: boolean;
+  max_candidate_files: number;
   model_provider: string;
   model_name: string | null;
   max_steps: number;
@@ -236,6 +246,8 @@ export interface TraceMetricSummary {
 }
 
 export interface AgentRunTrace {
+  latest_plan: AgentPlan | null;
+  plan_status: "not_submitted" | "accepted" | "rejected";
   run_id: UUID;
   status: string;
   events: AgentRunTraceEvent[];
@@ -243,6 +255,39 @@ export interface AgentRunTrace {
   test_phases: TraceTestPhaseSummary[];
   failure: TraceFailureSummary | null;
   metrics: TraceMetricSummary | null;
+}
+
+export interface AgentPlan {
+  revision: number;
+  status: "accepted" | "rejected";
+  accepted: boolean;
+  reason: string | null;
+  created_at: string;
+  plan: {
+    issue_summary: string;
+    suspected_root_cause: string;
+    files_inspected: string[];
+    files_likely_to_modify: string[];
+    test_strategy: string;
+    risk_rollback_notes: string;
+  } | null;
+}
+
+export interface CandidateFile {
+  path: string;
+  reason: string;
+  confidence: "low" | "medium" | "high";
+}
+
+export interface AgentHypothesis {
+  revision: number;
+  summary: string;
+  suspected_files: string[];
+  supporting_evidence: string[];
+  confidence: "low" | "medium" | "high";
+  status: "active" | "revised" | "rejected" | "confirmed";
+  superseded_by_revision: number | null;
+  created_at: string;
 }
 
 export interface HumanReview {
@@ -382,6 +427,7 @@ export interface ToolUsageAnalytics {
 
 export interface LocalizationMetricSet {
   total_runs_with_gold_files: number;
+  runs_with_candidate_files: number;
   average_file_localization_score: number;
   top1_accuracy: number;
   top3_accuracy: number;
@@ -390,6 +436,17 @@ export interface LocalizationMetricSet {
   edited_file_recall: number;
   average_files_read: number;
   average_files_edited: number;
+  candidate_top1_accuracy: number;
+  candidate_top3_accuracy: number;
+  candidate_top5_accuracy: number;
+  average_candidate_count: number;
+}
+
+export interface CandidateHitRateByModel {
+  model_provider: string;
+  model_name: string;
+  runs_with_candidate_files: number;
+  candidate_hit_rate: number;
 }
 
 export interface MissedGoldFile {
@@ -417,6 +474,7 @@ export interface FileLocalizationAnalytics extends LocalizationMetricSet {
   most_common_missed_gold_files: MissedGoldFile[];
   localization_by_model: LocalizationByModel[];
   localization_by_repository: LocalizationByRepository[];
+  candidate_hit_rate_by_model: CandidateHitRateByModel[];
 }
 
 export interface ApiErrorPayload {

@@ -12,6 +12,7 @@ from sqlalchemy.orm import Session
 from app.models.agent_event import AgentEvent
 from app.models.agent_run import AgentRun
 from app.schemas.analytics import (
+    CandidateHitRateByModel,
     FileLocalizationAnalytics,
     LocalizationByModel,
     LocalizationByRepository,
@@ -27,6 +28,7 @@ class _RunLocalization:
     gold_files: frozenset[str]
     inspected_files: tuple[str, ...]
     edited_files: frozenset[str]
+    candidate_files: tuple[str, ...]
 
     @property
     def localization_score(self) -> float:
@@ -44,6 +46,9 @@ class _RunLocalization:
 
     def top_k_hit(self, limit: int) -> bool:
         return bool(set(self.inspected_files[:limit]) & self.gold_files)
+
+    def candidate_top_k_hit(self, limit: int) -> bool:
+        return bool(set(self.candidate_files[:limit]) & self.gold_files)
 
 
 def build_file_localization_analytics(
@@ -100,6 +105,26 @@ def build_file_localization_analytics(
                 row.repository_name.lower(),
             ),
         ),
+        candidate_hit_rate_by_model=sorted(
+            (
+                CandidateHitRateByModel(
+                    model_provider=provider,
+                    model_name=model,
+                    runs_with_candidate_files=len(candidate_records),
+                    candidate_hit_rate=_rate(
+                        record.candidate_top_k_hit(len(record.candidate_files))
+                        for record in candidate_records
+                    ),
+                )
+                for (provider, model), group in by_model.items()
+                if (candidate_records := [record for record in group if record.candidate_files])
+            ),
+            key=lambda row: (
+                -row.candidate_hit_rate,
+                row.model_provider.lower(),
+                row.model_name.lower(),
+            ),
+        ),
     )
 
 
@@ -140,6 +165,7 @@ def _build_records(db: Session, runs: list[AgentRun]) -> list[_RunLocalization]:
                         generated_patch.changed_files if generated_patch is not None else []
                     )
                 ),
+                candidate_files=_latest_pre_edit_candidates(events_by_run[run.id]),
             )
         )
     return records
@@ -168,11 +194,34 @@ def _ordered_pre_edit_inspections(events: list[AgentEvent]) -> tuple[str, ...]:
     return tuple(ordered)
 
 
+def _latest_pre_edit_candidates(events: list[AgentEvent]) -> tuple[str, ...]:
+    latest: tuple[str, ...] = ()
+    for event in events:
+        payload = event.payload_json or {}
+        if event.event_type == "patch_submitted" or _string_list(payload.get("files_modified")):
+            break
+        if event.event_type != "candidate_files_submitted":
+            continue
+        ranked_files = payload.get("ranked_files")
+        if not isinstance(ranked_files, list):
+            continue
+        paths: list[str] = []
+        for item in ranked_files:
+            if not isinstance(item, dict) or not isinstance(item.get("path"), str):
+                continue
+            normalized = _normalize_file_path(item["path"])
+            if normalized and normalized not in paths:
+                paths.append(normalized)
+        latest = tuple(paths)
+    return latest
+
+
 def _aggregate(records: list[_RunLocalization]) -> dict[str, int | float]:
     count = len(records)
     if not count:
         return {
             "total_runs_with_gold_files": 0,
+            "runs_with_candidate_files": 0,
             "average_file_localization_score": 0.0,
             "top1_accuracy": 0.0,
             "top3_accuracy": 0.0,
@@ -181,9 +230,15 @@ def _aggregate(records: list[_RunLocalization]) -> dict[str, int | float]:
             "edited_file_recall": 0.0,
             "average_files_read": 0.0,
             "average_files_edited": 0.0,
+            "candidate_top1_accuracy": 0.0,
+            "candidate_top3_accuracy": 0.0,
+            "candidate_top5_accuracy": 0.0,
+            "average_candidate_count": 0.0,
         }
+    candidate_records = [record for record in records if record.candidate_files]
     return {
         "total_runs_with_gold_files": count,
+        "runs_with_candidate_files": len(candidate_records),
         "average_file_localization_score": _average(
             record.localization_score for record in records
         ),
@@ -194,6 +249,18 @@ def _aggregate(records: list[_RunLocalization]) -> dict[str, int | float]:
         "edited_file_recall": _average(record.edited_recall for record in records),
         "average_files_read": _average(len(record.inspected_files) for record in records),
         "average_files_edited": _average(len(record.edited_files) for record in records),
+        "candidate_top1_accuracy": _rate(
+            record.candidate_top_k_hit(1) for record in candidate_records
+        ),
+        "candidate_top3_accuracy": _rate(
+            record.candidate_top_k_hit(3) for record in candidate_records
+        ),
+        "candidate_top5_accuracy": _rate(
+            record.candidate_top_k_hit(5) for record in candidate_records
+        ),
+        "average_candidate_count": _average(
+            len(record.candidate_files) for record in candidate_records
+        ),
     }
 
 

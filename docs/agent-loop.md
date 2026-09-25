@@ -15,12 +15,14 @@ starts `AgentLoop` with:
 
 - agent-visible repository and issue context
 - the selected model provider
-- up to eight registered workspace tools
+- up to eleven registered controlled tools, including `submit_candidate_files`, `submit_plan`, and
+  `submit_hypothesis`
 - a maximum model/tool step count
 - a maximum cumulative tool error count
 
 Each model response may request structured tool calls. The loop validates every call against the
-registered tool name and its argument contract, executes it through `AgentWorkspaceTools`, and adds
+registered tool name and its argument contract, executes workspace actions through
+`AgentWorkspaceTools` and plans through the run-local planning service, and adds
 a JSON tool observation to the conversation. The process continues until one of these conditions:
 
 - `submit_patch` produces an accepted candidate, or its configured repair budget is exhausted
@@ -50,7 +52,13 @@ POST /agent-runs/{benchmark_task_id}/start
   "max_repair_attempts": 1,
   "run_tests_after_patch": true,
   "stop_on_first_passing_patch": true,
-  "include_test_failure_feedback": true
+  "include_test_failure_feedback": true,
+  "require_plan_before_edit": true,
+  "max_plan_revisions": 2,
+  "plan_min_evidence_files": 1,
+  "require_hypothesis_before_patch": true,
+  "require_candidate_files_before_edit": true,
+  "max_candidate_files": 10
 }
 ```
 
@@ -61,6 +69,123 @@ Set `run_mode` to `scripted` with the mock provider for a deterministic flow. Se
 `enable_test_tool` to `false` to remove `run_tests` from both the advertised definitions and the
 executable tool registry. Setup and baseline remain enabled; `run_tests_after_patch` independently
 controls automatic post-patch tests.
+
+## Evidence-Grounded Planning
+
+Planning is required by default, in both scripted and tool-loop modes. Before the first
+`write_file` or `submit_patch` (including a no-op patch), call `submit_plan`:
+
+```json
+{
+  "issue_summary": "Addition returns the wrong result.",
+  "suspected_root_cause": "The inspected implementation subtracts its operands.",
+  "files_inspected": ["src/calculator.py"],
+  "files_likely_to_modify": ["src/calculator.py", "tests/test_calculator.py"],
+  "test_strategy": "Run the configured calculator tests and regression suite.",
+  "risk_rollback_notes": "Restrict the fix to addition; revert the generated diff on regression."
+}
+```
+
+All six fields are required. Text fields must be non-empty and at most 2,000 characters each.
+Each path list accepts at most 50 paths of 300 characters; the entire plan is limited to
+16,384 UTF-8 bytes. Paths must remain inside the workspace and cannot refer to protected gold
+or hidden-test locations. Proposed new files may not yet exist.
+
+Evidence comes only from successful `read_file`, `search_code` matches, and
+`retrieve_relevant_files` results in this run. Listing filenames, failed reads, and the agent's
+own claims do not count. Every claimed inspected file must have been observed; duplicate and
+equivalent paths count once. `plan_min_evidence_files` defaults to 1 (range 1-50).
+
+`max_plan_revisions` defaults to 2 (range 0-10): one initial submission plus two revisions.
+Invalid submissions consume this budget too. Missing plans and rejected revisions produce tool
+errors with corrective feedback; they consume the existing step/tool-error budgets, but not a
+patch repair attempt. No counter resets. A rejected revision closes the edit gate, even after
+an earlier accepted plan. A newly accepted plan reopens it. Once the revision budget is
+exhausted, no subsequent plan can unlock editing.
+
+Accepted plans remain valid across patch repairs. `files_likely_to_modify` is an inspectable
+intent, not a new file allowlist; existing path and patch-quality guardrails still apply.
+Evidence checks verify observation, not the correctness of the proposed root cause.
+Set `require_plan_before_edit=false` explicitly only for legacy/comparison experiments.
+Model comparisons and pack runs accept the same configuration, stored in each run's configured
+event. Plan acceptance is automatic validation, not human patch approval.
+
+Each submission stores a `plan_submitted` event containing revision, accepted/rejected status,
+reason, timestamp, and bounded redacted plan data. Invalid schemas and unsafe paths do not retain
+raw content. Unvalidated plan arguments are omitted from generic model/tool event logs.
+No gold or hidden-test records are loaded by planning. Common credential patterns are redacted;
+this is best-effort redaction, not a general secret-detection guarantee.
+
+`GET /agent-runs/{run_id}` includes `latest_plan` (null for older/unplanned runs).
+The trace endpoint includes `latest_plan`, `plan_status` (`not_submitted`, `accepted`, `rejected`),
+and revision-specific events. Rejected plans have warning severity. Storage uses existing
+AgentEvent/config JSON, so this feature needs no database migration.
+
+## Candidate File Ranking
+
+`require_candidate_files_before_edit` defaults to true. Before the first `write_file`, the agent
+must call `submit_candidate_files` with an ordered `ranked_files` list:
+
+```json
+{
+  "ranked_files": [
+    {
+      "path": "src/calculator.py",
+      "reason": "The inspected implementation contains the incorrect operator.",
+      "confidence": "high"
+    }
+  ]
+}
+```
+
+Every candidate must be an existing, non-protected workspace file previously returned by
+`retrieve_relevant_files` or successfully read with `read_file` in the same run. File listings and
+search matches alone do not qualify. Paths are normalized, must remain inside the workspace, and
+cannot reference gold or hidden-test locations. Duplicate paths are rejected so rank positions stay
+unambiguous.
+
+`max_candidate_files` defaults to 10 and accepts 1-50. Each path is capped at 300 characters, each
+reason at 1,000 characters, and the complete submission at 16,384 UTF-8 bytes. Confidence is
+`low`, `medium`, or `high`. Valid submissions store a bounded, redacted
+`candidate_files_submitted` AgentEvent; raw candidate arguments are omitted from generic model and
+tool logs. The latest valid ranking appears as `candidate_files` on `GET /agent-runs/{run_id}` and
+as a normalized trace event. Existing event/config storage means no migration is required.
+
+Candidate ranking is distinct from planning. The plan explains the intended change; the candidate
+list records pre-edit file-localization beliefs in a strict order. A missing ranking blocks only
+`write_file` and consumes the existing step/tool-error budgets. It does not expose or consult gold
+files. Rankings may be revised during investigation but are frozen after the first successful
+write. Set `require_candidate_files_before_edit=false` only for legacy deterministic flows.
+
+## Root-Cause Hypotheses
+
+`require_hypothesis_before_patch` defaults to true. Before `submit_patch`, the run must contain an
+`active` or `confirmed` hypothesis submitted through `submit_hypothesis`. This is separate from the
+plan gate: plans control editing, while hypotheses make the current bug diagnosis explicit. A
+missing hypothesis rejects only the patch submission and returns corrective tool feedback.
+
+Each hypothesis contains a summary, up to 50 suspected workspace files, 1-50 supporting evidence
+items, confidence (`low`, `medium`, or `high`), and status (`active`, `revised`, `rejected`, or
+`confirmed`). Summary text is capped at 2,000 characters, each evidence item at 1,000 characters,
+each path at 300 characters, and the complete payload at 16,384 UTF-8 bytes. Suspected paths must
+resolve to existing non-protected workspace files. Hypotheses never query gold or hidden-test data.
+
+Submitting a new `active` or `confirmed` hypothesis changes the previous active/confirmed record to
+`revised` and links it to the new revision. `rejected` and explicitly `revised` entries remain in
+history but do not satisfy the patch gate. After patch tests fail, the agent may inspect the bounded
+feedback, submit a revised hypothesis, edit, and resubmit within the existing repair, step, and tool
+error limits. Hypothesis revisions do not reset any budget.
+
+Every valid submission records a redacted `hypothesis_submitted` AgentEvent with its revision,
+status, confidence, suspected files, evidence, and timestamp. Generic model/tool event logs omit raw
+hypothesis arguments. `GET /agent-runs/{run_id}` returns the ordered `hypotheses` list and the
+current `active_hypothesis`; the run trace includes each hypothesis event with a normalized summary.
+This uses AgentEvent JSON storage and requires no migration. Credential redaction is best effort.
+
+The deterministic mock flow reads a file, submits a plan, hypothesis, and candidate ranking in one
+model response, then submits a no-op patch. Real sequential editing runs normally need at least six
+tool steps: inspect, plan, hypothesize, rank candidates, edit, and submit. The default step budget is
+therefore six.
 
 ## Repair Attempts
 
@@ -123,6 +248,9 @@ The model can request only:
 - `list_files`
 - `search_code`
 - `read_file`
+- `submit_candidate_files`
+- `submit_plan`
+- `submit_hypothesis`
 - `write_file`
 - `run_tests`
 - `get_diff`
@@ -161,6 +289,9 @@ The loop records:
 - `tool_call_requested`
 - `tool_call_completed`
 - `tool_call_failed`
+- `plan_submitted`
+- `candidate_files_submitted`
+- `hypothesis_submitted`
 - `patch_submitted`
 - `step_limit_reached`
 - `repair_attempt_started`
@@ -183,8 +314,9 @@ malformed, and incomplete requests that never reach a registered tool. See
 ## Mock Provider
 
 `MockModelProvider` supports an explicit ordered response sequence for deterministic service tests.
-Without one, it drives a four-turn no-op flow: list files, read a README or first listed file, inspect
-the diff, and submit it. This exercises the real loop without making an external API call.
+Without one, it reads a README or first source file, submits the required plan, hypothesis, and
+candidate ranking, then submits a no-op patch. This exercises the real loop without making an
+external API call.
 
 OpenAI uses the common response contract through an opt-in Responses API adapter. Real calls are
 disabled by default. Anthropic and local adapters use the same loop and their existing feature

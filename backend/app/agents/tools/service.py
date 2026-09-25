@@ -414,6 +414,12 @@ class AgentWorkspaceTools:
         )
         self._db.commit()
 
+    def validate_plan_path(self, raw_path: str, *, must_exist: bool) -> str:
+        path, relative = self._resolve_path(raw_path, must_exist=must_exist)
+        if relative == "." or path.is_dir():
+            raise ToolSafetyError("Plan paths must identify workspace files, not directories.")
+        return relative
+
     def _resolve_path(self, raw_path: str, *, must_exist: bool) -> tuple[Path, str]:
         relative_path = self._normalize_relative_path(raw_path)
         self._reject_protected_gold_path(relative_path)

@@ -134,7 +134,7 @@ def test_starting_run_on_ready_task_completes_noop_patch(
         json={
             "model_provider": "mock",
             "model_name": "scripted-mock",
-            "max_steps": 4,
+            "max_steps": 5,
             "command_timeout_seconds": 15,
         },
     )
@@ -145,9 +145,10 @@ def test_starting_run_on_ready_task_completes_noop_patch(
     assert payload["model_provider"] == "mock"
     assert payload["model_name"] == "scripted-mock"
     assert [step["step_name"] for step in payload["steps"]] == [
-        "list_files",
         "read_file",
-        "get_diff",
+        "submit_plan",
+        "submit_hypothesis",
+        "submit_candidate_files",
         "submit_patch",
     ]
     assert payload["changed_files"] == []
@@ -234,7 +235,9 @@ def test_start_creates_agent_run_row_and_logs_events(client: TestClient) -> None
     event_types = [event.event_type for event in events]
     assert "agent_run_started" in event_types
     assert "model_response" in event_types
-    assert event_types.count("agent_tool_call") == 4
+    assert event_types.count("agent_tool_call") == 2
+    assert event_types.count("plan_submitted") == 1
+    assert event_types.count("hypothesis_submitted") == 1
     assert "agent_run_completed" in event_types
 
 
@@ -510,7 +513,7 @@ def test_run_configuration_and_prompt_preview_are_stored_and_inspectable(
     request_payload = {
         "model_provider": "mock",
         "model_name": "repeatable-mock",
-        "max_steps": 4,
+        "max_steps": 5,
         "max_tool_errors": 2,
         "command_timeout_seconds": 15,
         "include_issue_comments": False,
@@ -520,6 +523,12 @@ def test_run_configuration_and_prompt_preview_are_stored_and_inspectable(
         "run_tests_after_patch": True,
         "stop_on_first_passing_patch": True,
         "include_test_failure_feedback": True,
+        "require_plan_before_edit": True,
+        "max_plan_revisions": 2,
+        "plan_min_evidence_files": 1,
+        "require_hypothesis_before_patch": True,
+        "require_candidate_files_before_edit": True,
+        "max_candidate_files": 10,
     }
 
     response = client.post(f"/agent-runs/{task_id}/start", json=request_payload)
