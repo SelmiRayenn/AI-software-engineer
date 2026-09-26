@@ -32,7 +32,8 @@ def start_benchmark_pack_run(
     provider_factory: ModelProviderFactoryDep,
     operator_token: Annotated[str | None, Header(alias=TRUSTED_OPERATOR_HEADER)] = None,
 ) -> BenchmarkPackRunRead:
-    if request.include_hidden_tests:
+    trusted_features = request.include_hidden_tests or request.targeted_tests_trusted_gold_files
+    if trusted_features:
         verify_trusted_operator_token(operator_token)
     service = BenchmarkPackRunService(
         db,
@@ -42,7 +43,7 @@ def start_benchmark_pack_run(
         ),
     )
     try:
-        return service.start(pack_id, request, trusted_operator=request.include_hidden_tests)
+        return service.start(pack_id, request, trusted_operator=trusted_features)
     except BenchmarkPackNotFound as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
     except BenchmarkPackConflict as exc:

@@ -1,21 +1,29 @@
 from typing import Annotated
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, Header, HTTPException, status
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.core.test_phases import TEST_PHASE_HIDDEN_EVAL
+from app.core.trusted import TRUSTED_OPERATOR_HEADER, verify_trusted_operator_token
 from app.db.session import get_db
 from app.models import AgentRun, TestResult
+from app.schemas.targeted_tests import (
+    TargetedTestSelectionRead,
+    TargetedTestSelectionRequest,
+)
 from app.schemas.test_execution import TestExecutionRequest, TestExecutionResponse
+from app.schemas.test_failure_analysis import TestFailureAnalysisRead
 from app.schemas.test_result import TestResultRead
+from app.targeted_tests import TargetedTestSelectionService
 from app.test_execution import (
     TestExecutionError,
     TestExecutionSafetyError,
     TestExecutionService,
     TestExecutionWorkspaceError,
 )
+from app.test_failure_analysis import TestFailureAnalysisService
 
 router = APIRouter(prefix="/agent-runs", tags=["agent run tests"])
 DbSession = Annotated[Session, Depends(get_db)]
@@ -62,6 +70,46 @@ def list_agent_run_tests(run_id: UUID, db: DbSession = None) -> list[TestResultR
         .order_by(TestResult.created_at.asc())
     )
     return list(db.scalars(statement).all())
+
+
+@router.get(
+    "/{run_id}/test-failure-analysis",
+    response_model=list[TestFailureAnalysisRead],
+)
+def list_test_failure_analyses(
+    run_id: UUID,
+    db: DbSession = None,
+) -> list[TestFailureAnalysisRead]:
+    try:
+        return TestFailureAnalysisService(db, run_id).list_for_run()
+    except LookupError as exc:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
+
+
+@router.post(
+    "/{run_id}/tests/select-targeted",
+    response_model=TargetedTestSelectionRead,
+)
+def select_targeted_tests(
+    run_id: UUID,
+    request: TargetedTestSelectionRequest | None = None,
+    db: DbSession = None,
+    operator_token: Annotated[str | None, Header(alias=TRUSTED_OPERATOR_HEADER)] = None,
+) -> TargetedTestSelectionRead:
+    request = request or TargetedTestSelectionRequest()
+    if request.targeted_tests_trusted_gold_files:
+        verify_trusted_operator_token(operator_token)
+    try:
+        service = TargetedTestSelectionService(db, run_id)
+        config = service.stored_config()
+        return service.select(
+            max_commands=(
+                request.targeted_tests_max_commands or config.targeted_tests_max_commands
+            ),
+            trusted_gold_files=request.targeted_tests_trusted_gold_files,
+        )
+    except LookupError as exc:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
 
 
 def _test_execution_service(

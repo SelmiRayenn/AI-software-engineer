@@ -29,4 +29,5 @@ class CandidateFilesInput(BaseModel):
 class CandidateFilesSubmission(CandidateFilesInput):
     model_config = ConfigDict(extra="ignore")
 
+    revision: int = Field(default=1, ge=1)
     created_at: datetime

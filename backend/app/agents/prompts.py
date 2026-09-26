@@ -1,10 +1,10 @@
 from __future__ import annotations
 
 import json
-import re
 from dataclasses import dataclass
 
 from app.core.config import settings
+from app.core.redaction import redact_common_secrets
 from app.model_providers import ModelMessage
 from app.models import BenchmarkTask, Repository
 
@@ -26,6 +26,17 @@ Maximum repair attempts after the first submission: {max_repair_attempts}
 Run configured tests after submission: {run_tests_after_patch}
 Stop on first passing patch: {stop_on_first_passing_patch}
 Include failure output in repair feedback: {include_test_failure_feedback}
+Require a fresh active/confirmed hypothesis after failed tests: {require_hypothesis_update_after_failure}
+Require an updated accepted plan after failed tests: {require_plan_update_after_failure}
+Require updated candidate files after failed tests: {require_candidate_update_after_failure}
+Maximum repair feedback characters (also capped at 4096 UTF-8 bytes): {max_failure_feedback_chars}
+After failed post-patch tests, analyze structured failure feedback. Update or confirm the hypothesis
+with submit_hypothesis before resubmitting when required. Revise submit_plan if affected files or
+strategy changed (always before edits/submission when required). Revise submit_candidate_files if
+new files are implicated (always before edits when required); read/retrieve them first. Candidate
+rankings reopen for a failed-test repair and freeze again on the next write. Make a smaller targeted
+repair, then submit_patch to run tests again. Prior accepted reasoning cannot satisfy a fresh-update
+requirement. Disabled repairs do not require follow-up reasoning.
 Require an accepted plan before editing: {require_plan_before_edit}
 Maximum plan revisions after the initial submission: {max_plan_revisions}
 Minimum distinct evidence files per plan: {plan_min_evidence_files}
@@ -139,6 +150,10 @@ def render_agent_prompts(
     run_tests_after_patch: bool = True,
     stop_on_first_passing_patch: bool = True,
     include_test_failure_feedback: bool = True,
+    require_hypothesis_update_after_failure: bool = True,
+    require_plan_update_after_failure: bool = False,
+    require_candidate_update_after_failure: bool = False,
+    max_failure_feedback_chars: int = 4096,
     require_plan_before_edit: bool = True,
     max_plan_revisions: int = 2,
     plan_min_evidence_files: int = 1,
@@ -167,6 +182,10 @@ def render_agent_prompts(
             run_tests_after_patch=run_tests_after_patch,
             stop_on_first_passing_patch=stop_on_first_passing_patch,
             include_test_failure_feedback=include_test_failure_feedback,
+            require_hypothesis_update_after_failure=require_hypothesis_update_after_failure,
+            require_plan_update_after_failure=require_plan_update_after_failure,
+            require_candidate_update_after_failure=require_candidate_update_after_failure,
+            max_failure_feedback_chars=max_failure_feedback_chars,
             require_plan_before_edit=require_plan_before_edit,
             max_plan_revisions=max_plan_revisions,
             plan_min_evidence_files=plan_min_evidence_files,
@@ -214,21 +233,7 @@ def render_agent_prompts(
 
 
 def redact_prompt_text(value: str) -> str:
-    redacted = re.sub(
-        r"(?i)\b(bearer\s+)[A-Za-z0-9._~+/=-]+",
-        r"\1[REDACTED]",
-        value,
-    )
-    redacted = re.sub(
-        r"\b(?:sk-[A-Za-z0-9_-]{8,}|gh[pousr]_[A-Za-z0-9_]{8,})\b",
-        "[REDACTED]",
-        redacted,
-    )
-    return re.sub(
-        r"(?i)\b((?:[a-z0-9]+[_-])*(?:api[_-]?key|access[_-]?token|auth[_-]?token|password|secret))\s*[:=]\s*([^\s,;]+)",
-        r"\1=[REDACTED]",
-        redacted,
-    )
+    return redact_common_secrets(value)
 
 
 def _agent_visible_comments(task: BenchmarkTask) -> list[dict[str, str | None]]:

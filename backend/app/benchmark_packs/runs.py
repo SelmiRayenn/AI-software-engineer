@@ -58,8 +58,12 @@ class BenchmarkPackRunService:
         *,
         trusted_operator: bool = False,
     ) -> BenchmarkPackRunRead:
-        if request.include_hidden_tests and not trusted_operator:
-            raise PermissionError("Hidden evaluation requires trusted operator access.")
+        if (
+            request.include_hidden_tests or request.targeted_tests_trusted_gold_files
+        ) and not trusted_operator:
+            raise PermissionError(
+                "Hidden or gold-assisted evaluation requires trusted operator access."
+            )
         pack = self._db.get(BenchmarkPack, pack_id)
         if pack is None:
             raise BenchmarkPackNotFound("Benchmark pack not found.")
@@ -128,7 +132,7 @@ class BenchmarkPackRunService:
             if stop:
                 self._skip(entry)
             else:
-                self._execute(entry, run_request)
+                self._execute(entry, run_request, trusted_operator=trusted_operator)
                 stop = request.stop_on_task_failure and entry.status == "failed"
             self._update_aggregates(pack_run)
             self._db.commit()
@@ -154,7 +158,13 @@ class BenchmarkPackRunService:
             raise BenchmarkPackRunNotFound("Benchmark pack run not found.")
         return BenchmarkPackRunRead.model_validate(pack_run)
 
-    def _execute(self, entry: BenchmarkPackRunTask, request: AgentRunStartRequest) -> None:
+    def _execute(
+        self,
+        entry: BenchmarkPackRunTask,
+        request: AgentRunStartRequest,
+        *,
+        trusted_operator: bool,
+    ) -> None:
         run = self._db.get(AgentRun, entry.agent_run_id)
         run.started_at = datetime.now(UTC)
         entry.started_at = run.started_at
@@ -168,9 +178,14 @@ class BenchmarkPackRunService:
                 raise BenchmarkTaskNotReadyError(
                     "Task is no longer ready or its definition changed after pack selection."
                 )
-            self._orchestrator.start_run(
-                benchmark_task_id=task.id, request=request, agent_run_id=run.id
-            )
+            start_options = {
+                "benchmark_task_id": task.id,
+                "request": request,
+                "agent_run_id": run.id,
+            }
+            if trusted_operator:
+                start_options["trusted_operator"] = True
+            self._orchestrator.start_run(**start_options)
             if run.status not in {"completed", "failed", "cancelled"}:
                 raise RuntimeError("Task runner returned without a terminal state.")
         except Exception as exc:  # noqa: BLE001 - each task is an independent failure boundary

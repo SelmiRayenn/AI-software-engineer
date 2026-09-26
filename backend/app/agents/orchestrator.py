@@ -144,12 +144,17 @@ class AgentRunOrchestrator:
         benchmark_task_id: uuid.UUID,
         request: AgentRunStartRequest,
         agent_run_id: uuid.UUID | None = None,
+        trusted_operator: bool = False,
     ) -> AgentRunStartResponse:
         task = crud.get_benchmark_task(self._db, benchmark_task_id)
         if task is None:
             raise AgentRunStartError("Benchmark task not found.")
         if task.status != TASK_STATUS_READY:
             raise BenchmarkTaskNotReadyError("Benchmark task must be ready before starting a run.")
+        if request.targeted_tests_trusted_gold_files and not trusted_operator:
+            raise AgentRunStartError(
+                "Gold-file targeted test selection requires trusted operator access."
+            )
 
         repository = task.repository
         if repository is None:
@@ -195,6 +200,10 @@ class AgentRunOrchestrator:
             run_tests_after_patch=run_config.run_tests_after_patch,
             stop_on_first_passing_patch=run_config.stop_on_first_passing_patch,
             include_test_failure_feedback=run_config.include_test_failure_feedback,
+            require_hypothesis_update_after_failure=run_config.require_hypothesis_update_after_failure,
+            require_plan_update_after_failure=run_config.require_plan_update_after_failure,
+            require_candidate_update_after_failure=run_config.require_candidate_update_after_failure,
+            max_failure_feedback_chars=run_config.max_failure_feedback_chars,
             require_plan_before_edit=run_config.require_plan_before_edit,
             max_plan_revisions=run_config.max_plan_revisions,
             plan_min_evidence_files=run_config.plan_min_evidence_files,

@@ -10,10 +10,10 @@ from uuid import UUID
 from sqlalchemy.orm import Session
 
 from app.agents.candidate_files import AgentCandidateFilesService
-from app.agents.hypotheses import AgentHypothesisService
+from app.agents.hypotheses import AgentHypothesisService, active_run_hypothesis
 from app.agents.planning import AgentPlanningService
 from app.agents.prompts import RenderedAgentPrompts, redact_prompt_text, render_agent_prompts
-from app.agents.repairs import AgentRepairService
+from app.agents.repairs import AgentRepairService, ReasoningRevisions
 from app.agents.tools import (
     AgentWorkspaceTools,
     CodeSearchResult,
@@ -165,6 +165,10 @@ class AgentLoop:
             run_tests_after_patch=config.run_tests_after_patch,
             stop_on_first_passing_patch=config.stop_on_first_passing_patch,
             include_test_failure_feedback=config.include_test_failure_feedback,
+            require_hypothesis_update_after_failure=config.require_hypothesis_update_after_failure,
+            require_plan_update_after_failure=config.require_plan_update_after_failure,
+            require_candidate_update_after_failure=config.require_candidate_update_after_failure,
+            max_failure_feedback_chars=config.max_failure_feedback_chars,
             require_plan_before_edit=config.require_plan_before_edit,
             max_plan_revisions=config.max_plan_revisions,
             plan_min_evidence_files=config.plan_min_evidence_files,
@@ -263,6 +267,8 @@ class AgentLoop:
                 submission_started = False
                 try:
                     tool_call = self._parse_tool_call(raw_tool_call)
+                    if self._repairs and tool_call.name in {"write_file", "submit_patch"}:
+                        self._repairs.check_action(tool_call.name, self._reasoning_revisions())
                     self._planning.check_edit(tool_call.name)
                     self._candidate_files.check_edit(tool_call.name)
                     if tool_call.name == "submit_patch":
@@ -270,7 +276,7 @@ class AgentLoop:
                             enabled=self._config.require_hypothesis_before_patch
                         )
                     if self._repairs and tool_call.name == "submit_patch":
-                        self._repairs.begin_attempt()
+                        self._repairs.begin_attempt(self._reasoning_revisions())
                         submission_started = True
                     result = self._execute_tool(tool_call)
                 except Exception as exc:  # noqa: BLE001 - controlled tools are an execution boundary
@@ -310,6 +316,8 @@ class AgentLoop:
                     decision = None
                     if submission_started:
                         decision = self._repairs.assess(None, error=exc)
+                        if decision.reconsider_reasoning:
+                            self._candidate_files.begin_repair()
                         _skip_remaining_calls(messages, raw_tool_calls[call_index + 1 :])
                         messages.append(ModelMessage(role="user", content=decision.feedback))
                     if tool_errors >= self._max_tool_errors:
@@ -384,6 +392,8 @@ class AgentLoop:
                     )
                     if self._repairs:
                         decision = self._repairs.assess(result)
+                        if decision.reconsider_reasoning:
+                            self._candidate_files.begin_repair()
                         _skip_remaining_calls(messages, raw_tool_calls[call_index + 1 :])
                         messages.append(ModelMessage(role="user", content=decision.feedback))
                         if decision.invalid_patch:
@@ -430,6 +440,14 @@ class AgentLoop:
             messages=messages,
             model_calls=model_calls,
             tool_errors=tool_errors,
+        )
+
+    def _reasoning_revisions(self) -> ReasoningRevisions:
+        hypothesis = active_run_hypothesis(self._db, self._agent_run.id)
+        return ReasoningRevisions(
+            hypothesis_revision_used=hypothesis.revision if hypothesis else None,
+            plan_revision_used=self._planning.revision if self._planning.accepted else None,
+            candidate_revision_used=self._candidate_files.revision or None,
         )
 
     def tool_definitions(self) -> list[ToolDefinition]:

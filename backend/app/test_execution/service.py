@@ -34,7 +34,9 @@ from app.failures.categories import (
 )
 from app.models import AgentEvent, AgentRun, GeneratedPatch, HiddenEvalTest, TestResult
 from app.patches import PatchError, PatchService
+from app.targeted_tests import TargetedTestSelectionService
 from app.test_execution.hidden_workspace import hidden_workspace
+from app.test_failure_analysis import TestFailureAnalysisService
 
 TEST_EXECUTION_ALLOWED_STATUSES = {RUN_STATUS_QUEUED, RUN_STATUS_RUNNING}
 
@@ -118,6 +120,7 @@ class TestExecutionService:
             allowed_commands=self._agent_run.benchmark_task.setup_commands,
         )
         passed = _all_passed(results)
+        self._analyze_failures(results)
         if not passed:
             self._mark_failed()
 
@@ -152,6 +155,7 @@ class TestExecutionService:
                 allowed_commands=self._agent_run.benchmark_task.setup_commands,
             )
             if not _all_passed(setup_results):
+                self._analyze_failures(setup_results)
                 self._mark_failed()
                 event = self._log_phase_completed(
                     phase=TEST_PHASE_BASELINE,
@@ -178,6 +182,7 @@ class TestExecutionService:
             allowed_commands=self._agent_run.benchmark_task.test_commands,
         )
         passed = _all_passed(test_results)
+        self._analyze_failures(test_results)
         self._log_phase_completed(
             phase=TEST_PHASE_BASELINE,
             passed=passed,
@@ -199,6 +204,9 @@ class TestExecutionService:
         generated_patch_id: UUID | None = None,
         attempt_number: int | None = None,
         finalize_run: bool = True,
+        enable_targeted_tests: bool | None = None,
+        targeted_tests_max_commands: int | None = None,
+        targeted_tests_trusted_gold_files: bool | None = None,
     ) -> TestExecutionPhaseResult:
         self._ensure_execution_allowed()
         self._mark_running_if_needed()
@@ -211,14 +219,30 @@ class TestExecutionService:
             raise TestExecutionSafetyError("Generated patch does not belong to this run.")
         patch_status = self._apply_generated_patch_if_present(patch, finalize_run=finalize_run)
         generated_patch_id = patch.id if patch else None
+        configured_commands = list(self._agent_run.benchmark_task.test_commands)
+        if enable_targeted_tests is None:
+            run_config = TargetedTestSelectionService(self._db, self._agent_run_id).stored_config()
+            enable_targeted_tests = run_config.enable_targeted_tests
+            targeted_tests_max_commands = run_config.targeted_tests_max_commands
+            # Public standalone execution may honor ordinary targeting, but trusted gold hints
+            # are passed explicitly only by the authorized orchestrator path.
+            targeted_tests_trusted_gold_files = False
+        commands = configured_commands
+        if enable_targeted_tests:
+            selection = TargetedTestSelectionService(self._db, self._agent_run_id).select(
+                max_commands=targeted_tests_max_commands or 3,
+                trusted_gold_files=bool(targeted_tests_trusted_gold_files),
+            )
+            commands = selection.selected_commands
         test_results = self._run_configured_commands(
             phase=TEST_PHASE_POST_PATCH,
-            commands=self._agent_run.benchmark_task.test_commands,
-            allowed_commands=self._agent_run.benchmark_task.test_commands,
+            commands=commands,
+            allowed_commands=commands if enable_targeted_tests else configured_commands,
             generated_patch_id=generated_patch_id,
             attempt_number=attempt_number,
         )
         passed = _all_passed(test_results)
+        self._analyze_failures(test_results)
         if finalize_run:
             if patch:
                 for candidate in self._agent_run.generated_patches:
@@ -315,6 +339,7 @@ class TestExecutionService:
             ) from exc
 
         passed = _all_passed(results)
+        self._analyze_failures(results)
         if hidden_tests:
             self._log_phase_completed(
                 phase=TEST_PHASE_HIDDEN_EVAL,
@@ -337,7 +362,9 @@ class TestExecutionService:
             raise TestExecutionSafetyError("Only test phases can execute test commands.")
         self._ensure_command_allowed(command, self._agent_run.benchmark_task.test_commands)
         self._mark_running_if_needed()
-        return self._run_command(phase=phase, command=command)
+        result = self._run_command(phase=phase, command=command)
+        self._analyze_failures([result])
+        return result
 
     def _run_configured_commands(
         self,
@@ -542,6 +569,11 @@ class TestExecutionService:
             summary=summary,
             source_event_id=source_event_id,
         )
+
+    def _analyze_failures(self, results: list[TestResult]) -> None:
+        failed = [result for result in results if not result.passed]
+        if failed:
+            TestFailureAnalysisService(self._db, self._agent_run_id).analyze_results(failed)
 
     def _limit_log(self, value: str | None) -> str:
         if not value:

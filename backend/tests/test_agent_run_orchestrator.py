@@ -523,12 +523,19 @@ def test_run_configuration_and_prompt_preview_are_stored_and_inspectable(
         "run_tests_after_patch": True,
         "stop_on_first_passing_patch": True,
         "include_test_failure_feedback": True,
+        "require_hypothesis_update_after_failure": False,
+        "require_plan_update_after_failure": True,
+        "require_candidate_update_after_failure": True,
+        "max_failure_feedback_chars": 1024,
         "require_plan_before_edit": True,
         "max_plan_revisions": 2,
         "plan_min_evidence_files": 1,
         "require_hypothesis_before_patch": True,
         "require_candidate_files_before_edit": True,
         "max_candidate_files": 10,
+        "enable_targeted_tests": False,
+        "targeted_tests_max_commands": 3,
+        "targeted_tests_trusted_gold_files": False,
     }
 
     response = client.post(f"/agent-runs/{task_id}/start", json=request_payload)
@@ -538,6 +545,11 @@ def test_run_configuration_and_prompt_preview_are_stored_and_inspectable(
     assert payload["run_config"] == {**request_payload, "run_hidden_tests": False}
     assert payload["prompt_preview"]["issue_context_prompt"].startswith("Fix this benchmark issue.")
     assert "- run_tests" not in payload["prompt_preview"]["tool_use_instructions"]
+    safety = payload["prompt_preview"]["developer_safety_prompt"]
+    assert "Require a fresh active/confirmed hypothesis after failed tests: False" in safety
+    assert "Require an updated accepted plan after failed tests: True" in safety
+    assert "Require updated candidate files after failed tests: True" in safety
+    assert "Maximum repair feedback characters (also capped at 4096 UTF-8 bytes): 1024" in safety
 
     run_id = UUID(payload["id"])
     with TestingSessionLocal() as db:

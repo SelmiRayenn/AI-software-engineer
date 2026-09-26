@@ -25,6 +25,8 @@ hidden_eval
 POST /agent-runs/{run_id}/tests/baseline
 POST /agent-runs/{run_id}/tests/post-patch
 GET /agent-runs/{run_id}/tests
+GET /agent-runs/{run_id}/test-failure-analysis
+POST /agent-runs/{run_id}/tests/select-targeted
 ```
 
 Both POST endpoints accept an optional timeout override:
@@ -58,6 +60,40 @@ stored.
 
 No-op generated patches are allowed and recorded as `patch_status: "empty"`.
 
+## Targeted Test Selection
+
+Targeted post-patch testing is disabled by default. Run configuration accepts:
+
+```json
+{
+  "enable_targeted_tests": false,
+  "targeted_tests_max_commands": 3,
+  "targeted_tests_trusted_gold_files": false
+}
+```
+
+When enabled, the selector considers changed files, ranked candidate files, successful read and
+retrieval events, repository index paths, repository language, and recognized test-runner commands.
+Changed test files are preferred. Source files can map to indexed tests by normalized filename, for
+example `src/calculator.py` to `tests/test_calculator.py`.
+
+The selector can safely narrow existing commands or append validated repository-relative test paths
+to recognized pytest, Jest, or Vitest commands. It does not derive commands from shell pipelines,
+redirections, malformed commands, or unknown runners. When no safe subset exists, all configured
+test commands are returned unchanged. `targeted_tests_max_commands` limits only targeted commands;
+it never truncates the full-suite fallback.
+
+`POST /agent-runs/{run_id}/tests/select-targeted` accepts an optional command limit and returns
+`selected_commands`, `selection_reason`, `confidence`, and `fallback_to_full_suite`. Every selection
+is recorded as a `targeted_tests_selected` AgentEvent. Baseline and hidden-evaluation phases are
+unchanged; targeting applies only to visible post-patch execution.
+
+GoldPatch test-file hints are ignored by default. Setting
+`targeted_tests_trusted_gold_files=true` requires the trusted operator start/API path. Gold hints may
+only select a command already present in `BenchmarkTask.test_commands`; they never generate a new
+command containing a gold-only path. Normal agent runs, prompts, and public selection requests do
+not load gold files.
+
 ## Stored Results
 
 Each command creates a `TestResult` row with:
@@ -74,6 +110,21 @@ Each command creates a `TestResult` row with:
 
 Output is capped by `SANDBOX_MAX_OUTPUT_BYTES`. When output exceeds the limit, the stored value keeps
 the last bytes with a truncation prefix.
+
+## Structured Failure Analysis
+
+Every failed setup, baseline, post-patch, or hidden-evaluation result produces an idempotent
+`test_failure_analysis` AgentEvent. The analysis records the failed command, phase, exit code,
+concise summary, likely test names, bounded assertion/error excerpts, bounded stack snippets,
+affected paths, timeout/command-failure signals, and whether the source output was truncated.
+
+`GET /agent-runs/{run_id}/test-failure-analysis` returns the ordered analyses for a run. Common
+credential patterns are redacted before persistence, fields and excerpts have strict size/count
+limits, and repeated reads update the existing event instead of creating duplicates.
+
+Hidden evaluation failures are always collapsed into one public aggregate. The response exposes
+only phase, failed/total command counts, timeout/truncation signals, and a restricted summary. It
+does not expose hidden commands, test names, file paths, assertions, stacks, or test payloads.
 
 ## Safety
 
@@ -98,9 +149,27 @@ post-patch endpoint still finalizes its run after one phase.
 agent's `run_tests` tool does not disable the orchestrated test phases. See
 [agent repair configuration](agent-loop.md#repair-attempts) for requests and selection rules.
 
-Failure feedback sent to the model is separately redacted and bounded to 4,096 UTF-8 bytes.
-Disabling failure output includes only counts; stored bounded stdout/stderr remain available for
-human inspection. Neither hidden evaluation results nor GoldPatch data enter repair feedback.
+Failure feedback sent to the model is rendered from the same structured analyses, then separately
+bounded by `max_failure_feedback_chars` (default 4096, range 512-16384) and 4,096 UTF-8 bytes.
+Redaction precedes truncation; truncated feedback includes a marker. Disabling detailed failure feedback includes only counts, phase,
+exit code, and timeout/truncation signals; stored bounded stdout/stderr remain available for human
+inspection. Neither hidden evaluation details nor GoldPatch data enter repair feedback.
+
+For retries after failed visible tests, `require_hypothesis_update_after_failure=true` requires
+the agent to update or confirm its hypothesis before submitting the next patch.
+`require_plan_update_after_failure=false` and `require_candidate_update_after_failure=false`
+can be enabled to require a new accepted plan before editing/submitting and a new evidence-backed
+candidate ranking before editing. Otherwise feedback recommends revising them when strategy or
+implicated files change. Candidate rankings reopen for this repair window and freeze at the next
+successful write. The initial localization ranking is preserved for analytics.
+
+Each completed repair attempt links its structured failure analysis event IDs, the reasoning
+revisions used, attempted patch version, and a `test_phase_result` summary. The next attempt links
+the source analyses through `repair_source_analysis_event_ids`; no raw output is added to these
+metadata fields. They are inspectable in the run trace. Rejected gates spend tool-error/step budget,
+not patch attempts. Repeated failures require repeated reasoning updates. Disabled repairs retain
+their one-submission behavior, and setup, baseline, hidden-evaluation and standalone test endpoints
+are unaffected. Final passing selection clears the run failure state without erasing earlier logs.
 
 Tests that mutate tracked or unignored workspace files invalidate the candidate, which must then be
 inspected and resubmitted. Configure repository ignore rules for ordinary build/test artifacts.

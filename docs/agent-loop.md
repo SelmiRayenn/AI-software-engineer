@@ -58,7 +58,11 @@ POST /agent-runs/{benchmark_task_id}/start
   "plan_min_evidence_files": 1,
   "require_hypothesis_before_patch": true,
   "require_candidate_files_before_edit": true,
-  "max_candidate_files": 10
+  "max_candidate_files": 10,
+  "require_hypothesis_update_after_failure": true,
+  "require_plan_update_after_failure": false,
+  "require_candidate_update_after_failure": false,
+  "max_failure_feedback_chars": 4096
 }
 ```
 
@@ -103,7 +107,8 @@ patch repair attempt. No counter resets. A rejected revision closes the edit gat
 an earlier accepted plan. A newly accepted plan reopens it. Once the revision budget is
 exhausted, no subsequent plan can unlock editing.
 
-Accepted plans remain valid across patch repairs. `files_likely_to_modify` is an inspectable
+Accepted plans remain valid across patch repairs unless `require_plan_update_after_failure=true`.
+`files_likely_to_modify` is an inspectable
 intent, not a new file allowlist; existing path and patch-quality guardrails still apply.
 Evidence checks verify observation, not the correctness of the proposed root cause.
 Set `require_plan_before_edit=false` explicitly only for legacy/comparison experiments.
@@ -155,7 +160,12 @@ Candidate ranking is distinct from planning. The plan explains the intended chan
 list records pre-edit file-localization beliefs in a strict order. A missing ranking blocks only
 `write_file` and consumes the existing step/tool-error budgets. It does not expose or consult gold
 files. Rankings may be revised during investigation but are frozen after the first successful
-write. Set `require_candidate_files_before_edit=false` only for legacy deterministic flows.
+write. Failed post-patch tests with remaining repair budget reopen candidate selection until the
+next successful write. Each accepted ranking has a monotonically increasing `revision` (legacy
+events default to 1). The original pre-edit ranking remains the input to candidate localization
+analytics; a repair cannot improve its historical score. Evidence, duplicate, size, and path checks
+remain enforced in every revision. Set `require_candidate_files_before_edit=false` only for legacy
+deterministic flows.
 
 ## Root-Cause Hypotheses
 
@@ -201,6 +211,42 @@ within the remaining limits. Invalid patch size, application, or safety failures
 infrastructure/provider errors stop execution. Tests remain in the same prepared workspace, and
 setup/baseline execute once. Intermediate failures keep the run `running`.
 
+### Deliberate Repair
+
+After failed visible post-patch tests, the loop persists structured failure analyses and returns
+them with guidance to reassess the diagnosis, plan, and candidate files before a smaller repair.
+It never receives hidden-evaluation payloads or consults gold data for these gates.
+
+| Run setting | Default | Effect after failed tests when another attempt remains |
+| --- | --- | --- |
+| `require_hypothesis_update_after_failure` | `true` | A new active/confirmed `submit_hypothesis` revision is required before `submit_patch`; confirming the same diagnosis is allowed with supporting evidence. |
+| `require_plan_update_after_failure` | `false` | When enabled, a newly accepted `submit_plan` revision is required before `write_file` or `submit_patch`. Otherwise revise if files or strategy changed. |
+| `require_candidate_update_after_failure` | `false` | When enabled, a fresh evidence-backed `submit_candidate_files` revision is required before `write_file`. Otherwise revise when new files are implicated. |
+| `max_failure_feedback_chars` | `4096` | Integer 512-16384; redacted feedback and failure summaries are additionally capped at 4096 UTF-8 bytes. |
+
+Freshness is checked against the revisions used for the failed attempt, not merely the presence
+of an earlier submission. Rejected plans/hypotheses/candidates do not unlock their gate. Each
+subsequent failed-test attempt requires fresh revisions again. A gate rejection consumes the usual
+step/tool-error budget but does not create a patch or consume a repair submission. All plan revision,
+step, tool-error, patch, and test-command limits remain in force; allocate enough steps and plan
+revisions for the intended repair budget. No reset or arbitrary command execution is introduced.
+
+The update requirements are inactive when repairs are disabled (`max_repair_attempts=0`), tests
+are not run, no test commands exist, or the first patch passes. Invalid-patch feedback without
+failed tests does not introduce a new reasoning gate. Existing pending gates remain until satisfied
+or a valid passing/untested candidate clears them. Successful final selection clears the run's
+failure summary/category but preserves all earlier attempt records.
+
+`repair_attempt_started` and `repair_attempt_completed` include `hypothesis_revision_used`,
+`plan_revision_used`, `candidate_revision_used` (null if absent), and
+`repair_source_analysis_event_ids` linking the preceding failed test analyses. Completed attempts
+also include `patch_version_attempted` (null if rejected before storage),
+`failure_analysis_event_ids` generated by this attempt, and `test_phase_result` with phase, status,
+result IDs and pass/fail counts when tests ran. Inspect these in
+`GET /agent-runs/{run_id}/trace`; analyses are available through
+`GET /agent-runs/{run_id}/test-failure-analysis`. Configuration and prompt previews include the
+new settings. Existing AgentEvent storage is used, so no database migration is needed.
+
 `stop_on_first_passing_patch` defaults to true. When false, the model can continue submitting within
 the same repair budget even after a passing candidate. Final selection prefers the latest passing
 candidate, otherwise the latest stored candidate. Later failed or unfinished edits are safely
@@ -213,10 +259,16 @@ selected immediately with `final_patch_passed_tests=null`. This does not claim t
 `EvaluationMetric.tests_passed` remains false. Empty/no-op patches retain existing behavior and
 have `patch_applied=false` in metrics.
 
-`include_test_failure_feedback` defaults to true. Failure summaries include up to five failed
-command outputs, redact common credential patterns, and are limited to 4,096 UTF-8 bytes. Set it
-to false to return only failure counts without command output. Raw bounded command logs remain in
-`TestResult` for human inspection. Test text is untrusted data and cannot authorize another command.
+`include_test_failure_feedback` defaults to true. Repair feedback uses persisted structured test
+failure analyses rather than raw logs. It includes up to five failures with bounded likely test
+names, assertion/error excerpts, stack snippets, and affected paths; common credential patterns
+are redacted and the final feedback is limited by `max_failure_feedback_chars` and 4,096 UTF-8
+bytes, with a truncation marker. Repair policy precedes untrusted excerpts so long logs cannot
+displace revision instructions. Set the option to false to
+return counts, phase, exit code, and timeout/truncation signals without command or output details.
+Raw bounded command logs remain in `TestResult` for human inspection. Test text is untrusted data
+and cannot authorize another command. Hidden-evaluation content is never included in repair
+feedback; only its aggregate failure status is available outside trusted workflows.
 
 Every stored submission gets an immutable `GeneratedPatch` ID and increasing `version`, even if
 the text repeats. Each version keeps its own human review. Rejected attempts that fail before

@@ -32,12 +32,19 @@ class ModelComparisonRequest(BaseModel):
     run_tests_after_patch: bool = True
     stop_on_first_passing_patch: bool = True
     include_test_failure_feedback: bool = True
+    require_hypothesis_update_after_failure: bool = True
+    require_plan_update_after_failure: bool = False
+    require_candidate_update_after_failure: bool = False
+    max_failure_feedback_chars: int = Field(default=4096, ge=512, le=16384, strict=True)
     require_plan_before_edit: bool = True
     max_plan_revisions: int = Field(default=2, ge=0, le=10, strict=True)
     plan_min_evidence_files: int = Field(default=1, ge=1, le=50, strict=True)
     require_hypothesis_before_patch: bool = True
     require_candidate_files_before_edit: bool = True
     max_candidate_files: int = Field(default=10, ge=1, le=50, strict=True)
+    enable_targeted_tests: bool = False
+    targeted_tests_max_commands: int = Field(default=3, ge=1, le=20, strict=True)
+    targeted_tests_trusted_gold_files: Literal[False] = False
 
     model_config = ConfigDict(extra="forbid")
 

@@ -32,8 +32,15 @@ class AgentCandidateFilesService:
         self.config = config
         self.read_files: set[str] = set()
         self.retrieved_files: set[str] = set()
-        self.submitted = latest_run_candidate_submission(db, run_id) is not None
+        latest = latest_run_candidate_submission(db, run_id)
+        self.submitted = latest is not None
+        self.revision = latest.revision if latest else 0
         self.editing_started = _run_has_successful_write(db, run_id)
+
+    def begin_repair(self) -> None:
+        # Only the loop calls this after failed post-patch tests with budget remaining.
+        # Preserve evidence and earlier events; freeze the new ranking on the next write.
+        self.editing_started = False
 
     def observe(self, tool_name: str, files: list[str]) -> None:
         if tool_name == "read_file":
@@ -99,6 +106,7 @@ class AgentCandidateFilesService:
 
         submission = CandidateFilesSubmission(
             ranked_files=ranked_files,
+            revision=self.revision + 1,
             created_at=datetime.now(UTC),
         )
         if len(submission.model_dump_json().encode("utf-8")) > MAX_CANDIDATE_SUBMISSION_BYTES:
@@ -118,6 +126,7 @@ class AgentCandidateFilesService:
         )
         self.db.commit()
         self.submitted = True
+        self.revision = submission.revision
         return submission.model_dump(mode="json")
 
 
@@ -136,6 +145,7 @@ def latest_run_candidate_submission(db: Session, run_id: UUID) -> CandidateFiles
     try:
         submission = CandidateFilesSubmission.model_validate(event.payload_json)
         return CandidateFilesSubmission(
+            revision=submission.revision,
             ranked_files=[
                 CandidateFileRank(
                     path=redact_prompt_text(item.path),

@@ -129,6 +129,7 @@ def harness(tmp_path: Path):
                         "require_plan_before_edit": False,
                         "require_hypothesis_before_patch": False,
                         "require_candidate_files_before_edit": False,
+                        "require_hypothesis_update_after_failure": False,
                         **config,
                     },
                 )
@@ -147,6 +148,338 @@ def event_payloads(h, kind):
     return [
         event.payload_json for event in h.db.scalars(select(AgentEvent)) if event.event_type == kind
     ]
+
+
+def hypothesis(*, status="active"):
+    return call(
+        "submit_hypothesis",
+        summary="The addition implementation is incorrect",
+        suspected_files=["calculator.py"],
+        supporting_evidence=["Inspected arithmetic and configured test feedback"],
+        confidence="high",
+        status=status,
+    )
+
+
+def plan(**changes):
+    return call(
+        "submit_plan",
+        **{
+            "issue_summary": "Repair addition",
+            "suspected_root_cause": "The arithmetic is incorrect",
+            "files_inspected": ["calculator.py"],
+            "files_likely_to_modify": ["calculator.py"],
+            "test_strategy": "Run the configured addition test",
+            "risk_rollback_notes": "Revert the one-line change if necessary",
+            **changes,
+        },
+    )
+
+
+def ranked_files(path="calculator.py"):
+    return call(
+        "submit_candidate_files",
+        ranked_files=[{"path": path, "reason": "Relevant inspected file", "confidence": "high"}],
+    )
+
+
+def test_repair_requires_fresh_active_or_confirmed_hypothesis(harness):
+    h = harness
+    result = h.start(
+        [
+            hypothesis(),
+            *candidate(WRONG),
+            *candidate(GOOD),  # Edit allowed; stale hypothesis blocks submission.
+            hypothesis(status="rejected"),
+            call("submit_patch"),  # Rejected hypothesis cannot unlock submission either.
+            hypothesis(status="confirmed"),
+            call("submit_patch"),
+        ],
+        require_hypothesis_update_after_failure=True,
+    )
+    assert result["status"] == "completed", result
+    failed = event_payloads(h, "tool_call_failed")
+    assert len(failed) == 2
+    assert all("new active or confirmed hypothesis" in item["error_message"] for item in failed)
+    attempts = event_payloads(h, "repair_attempt_completed")
+    assert [item["hypothesis_revision_used"] for item in attempts] == [1, 3]
+    assert len(h.run.generated_patches) == 2  # Gate rejections do not spend patch attempts.
+
+
+@pytest.mark.parametrize("blocked_tool", ["write_file", "submit_patch"])
+def test_repair_requires_updated_accepted_plan_when_configured(harness, blocked_tool):
+    h = harness
+    blocked = (
+        call("write_file", file_path="calculator.py", content=GOOD)
+        if blocked_tool == "write_file"
+        else call("submit_patch")
+    )
+    result = h.start(
+        [
+            call("read_file", file_path="calculator.py"),
+            plan(),
+            *candidate(WRONG),
+            blocked,
+            plan(suspected_root_cause="The first repair returned a constant"),
+            *candidate(GOOD),
+        ],
+        require_plan_update_after_failure=True,
+    )
+    assert result["status"] == "completed", result
+    assert "updated accepted plan" in event_payloads(h, "tool_call_failed")[0]["error_message"]
+    assert [p["plan_revision_used"] for p in event_payloads(h, "repair_attempt_completed")] == [
+        1,
+        2,
+    ]
+
+
+def test_rejected_plan_revision_does_not_unlock_repair(harness):
+    h = harness
+    result = h.start(
+        [
+            call("read_file", file_path="calculator.py"),
+            plan(),
+            *candidate(WRONG),
+            plan(files_inspected=["notes.txt"]),  # No evidence for this file.
+            call("write_file", file_path="calculator.py", content=GOOD),
+            plan(),
+            *candidate(GOOD),
+        ],
+        require_plan_update_after_failure=True,
+    )
+    assert result["status"] == "completed", result
+    assert [item["accepted"] for item in event_payloads(h, "plan_submitted")] == [True, False, True]
+    assert event_payloads(h, "repair_attempt_completed")[-1]["plan_revision_used"] == 3
+
+
+def test_repair_candidate_updates_are_required_then_refrozen(harness):
+    h = harness
+    result = h.start(
+        [
+            call("read_file", file_path="calculator.py"),
+            call("read_file", file_path="notes.txt"),
+            ranked_files("notes.txt"),
+            *candidate(WRONG),
+            call("write_file", file_path="calculator.py", content=GOOD),  # Missing revision.
+            ranked_files(),
+            call("write_file", file_path="calculator.py", content=GOOD),
+            ranked_files("notes.txt"),  # Frozen again after the successful repair edit.
+            call("submit_patch"),
+        ],
+        require_candidate_update_after_failure=True,
+    )
+    assert result["status"] == "completed", result
+    errors = event_payloads(h, "tool_call_failed")
+    assert "updated candidate files" in errors[0]["error_message"]
+    assert "frozen" in errors[1]["error_message"]
+    assert [item["revision"] for item in event_payloads(h, "candidate_files_submitted")] == [1, 2]
+    assert [
+        p["candidate_revision_used"] for p in event_payloads(h, "repair_attempt_completed")
+    ] == [1, 2]
+    detail = h.client.get(f"/agent-runs/{h.run.id}").json()
+    assert detail["candidate_files"][0]["path"] == "calculator.py"
+    analytics = h.client.get("/analytics/file-localization").json()
+    assert analytics["candidate_top1_accuracy"] == 0  # Original pre-edit ranking is immutable.
+
+
+@pytest.mark.parametrize("unsafe_candidate", ["../outside.py", "notes.txt"])
+def test_repair_candidate_window_preserves_path_and_evidence_checks(harness, unsafe_candidate):
+    h = harness
+    result = h.start(
+        [
+            call("read_file", file_path="calculator.py"),
+            ranked_files(),
+            *candidate(WRONG),
+            ranked_files(unsafe_candidate),
+            call("write_file", file_path="calculator.py", content=GOOD),
+            ranked_files(),
+            *candidate(GOOD),
+        ],
+        require_candidate_update_after_failure=True,
+    )
+    assert result["status"] == "completed", result
+    assert len(event_payloads(h, "tool_call_failed")) == 2
+    assert len(event_payloads(h, "candidate_files_submitted")) == 2
+
+
+def test_second_patch_links_analysis_revisions_tests_and_final_metrics(harness):
+    h = harness
+    result = h.start(
+        [
+            call("read_file", file_path="calculator.py"),
+            hypothesis(),
+            plan(),
+            ranked_files(),
+            *candidate(WRONG),
+            hypothesis(status="confirmed"),
+            plan(),
+            ranked_files(),
+            *candidate(GOOD),
+        ],
+        max_steps=20,
+        require_hypothesis_update_after_failure=True,
+        require_plan_update_after_failure=True,
+        require_candidate_update_after_failure=True,
+    )
+    assert result["status"] == "completed", result
+    first, second = event_payloads(h, "repair_attempt_completed")
+    assert first["failure_analysis_event_ids"]
+    source_id = UUID(first["failure_analysis_event_ids"][0])
+    analysis = h.db.get(AgentEvent, source_id)
+    assert analysis.event_type == "test_failure_analysis"
+    assert analysis.payload_json["phase"] == "post_patch"
+    assert second["repair_source_analysis_event_ids"] == first["failure_analysis_event_ids"]
+    for field in ("hypothesis_revision_used", "plan_revision_used", "candidate_revision_used"):
+        assert (first[field], second[field]) == (1, 2)
+    assert first["patch_version_attempted"] == 1 and second["patch_version_attempted"] == 2
+    assert first["test_phase_result"]["status"] == "failed"
+    assert second["test_phase_result"]["status"] == "passed"
+    assert second["test_phase_result"]["result_ids"] == second["test_result_ids"]
+    assert second["failure_summary"] is None and result["failure_summary"] is None
+    assert result["failure_category"] is None
+    assert result["final_patch_id"] == second["generated_patch_id"]
+    assert h.run.evaluation_metric.tests_passed and h.run.evaluation_metric.issue_resolved
+    trace = h.client.get(f"/agent-runs/{h.run.id}/trace").json()
+    attempts = [
+        e["sanitized_payload"]
+        for e in trace["events"]
+        if e["event_type"] == "repair_attempt_completed"
+    ]
+    assert attempts[-1]["hypothesis_revision_used"] == 2
+    assert attempts[-1]["repair_source_analysis_event_ids"] == first["failure_analysis_event_ids"]
+    context = json.dumps(h.provider.conversations) + json.dumps(trace)
+    assert "Structured failure analysis" in context
+    for marker in ("HIDDEN_GOLD_PATCH", "HIDDEN_GOLD_FILE", "HIDDEN_FIX_COMMIT"):
+        assert marker not in context
+    stored = h.client.get(f"/agent-runs/{h.run.id}").json()["run_config"]
+    assert stored["require_hypothesis_update_after_failure"] is True
+
+
+def test_each_failed_test_attempt_requires_a_new_hypothesis(harness):
+    h = harness
+    result = h.start(
+        [
+            hypothesis(),
+            *candidate(WRONG),
+            hypothesis(),
+            *candidate(WRONG),
+            *candidate(GOOD),
+            hypothesis(),
+            call("submit_patch"),
+        ],
+        max_steps=20,
+        max_repair_attempts=2,
+        require_hypothesis_update_after_failure=True,
+    )
+    assert result["status"] == "completed", result
+    attempts = event_payloads(h, "repair_attempt_completed")
+    assert [p["hypothesis_revision_used"] for p in attempts] == [1, 2, 3]
+    assert len(event_payloads(h, "tool_call_failed")) == 1
+
+
+def test_passing_repair_clears_pending_revision_requirements(harness):
+    h = harness
+    result = h.start(
+        [
+            hypothesis(),
+            *candidate(WRONG),
+            hypothesis(),
+            *candidate(GOOD),
+            *candidate("def add(a, b):\n    return b + a\n"),
+        ],
+        max_steps=20,
+        max_repair_attempts=2,
+        stop_on_first_passing_patch=False,
+        require_hypothesis_update_after_failure=True,
+    )
+    assert result["status"] == "completed", result
+    attempts = event_payloads(h, "repair_attempt_completed")
+    assert [item["hypothesis_revision_used"] for item in attempts] == [1, 2, 2]
+    assert attempts[1]["repair_source_analysis_event_ids"]
+    assert attempts[2]["repair_source_analysis_event_ids"] == []
+    assert result["failure_summary"] is None and result["failure_category"] is None
+    assert not event_payloads(h, "tool_call_failed")
+
+
+@pytest.mark.parametrize("source", [GOOD, WRONG])
+def test_no_followup_reasoning_required_when_repairs_disabled(harness, source):
+    h = harness
+    result = h.start(
+        candidate(source),
+        max_repair_attempts=0,
+        require_hypothesis_update_after_failure=True,
+        require_plan_update_after_failure=True,
+        require_candidate_update_after_failure=True,
+    )
+    assert result["status"] == ("completed" if source == GOOD else "failed")
+    assert result["repair_attempts_used"] == 0
+    assert not event_payloads(h, "tool_call_failed")
+
+
+def test_invalid_patch_without_failed_tests_does_not_demand_reasoning_updates(harness, monkeypatch):
+    monkeypatch.setattr(settings, "patch_max_bytes", 600)
+    result = harness.start(
+        candidate("x = '" + "a" * 1000 + "'\n") + candidate(GOOD),
+        require_hypothesis_update_after_failure=True,
+        require_plan_update_after_failure=True,
+        require_candidate_update_after_failure=True,
+    )
+    assert result["status"] == "completed", result
+
+
+def test_configurable_feedback_cap_and_redaction(harness):
+    h = harness
+    h.task.test_commands = [
+        f'''"{sys.executable}" -B -c "print('api_key=private-value'); print('z'*8000); raise SystemExit(1)"'''
+    ]
+    h.db.commit()
+    h.start(
+        [*candidate(WRONG), hypothesis(), *candidate(GOOD)],
+        require_hypothesis_update_after_failure=True,
+        max_failure_feedback_chars=512,
+    )
+    feedback = next(
+        text
+        for text in h.provider.conversations[2]
+        if text and text.startswith("Analyze the structured")
+    )
+    assert len(feedback) <= 512 and feedback.endswith("[feedback truncated]")
+    assert "submit_hypothesis" in feedback
+    assert "private-value" not in json.dumps(h.provider.conversations)
+    for attempt in event_payloads(h, "repair_attempt_completed"):
+        assert len(attempt["failure_summary"]) <= 512
+
+
+@pytest.mark.parametrize("limit", [0, 511, 16385, 512.5, True])
+def test_invalid_feedback_limit_rejected_before_run(harness, limit):
+    response = harness.client.post(
+        f"/agent-runs/{harness.task.id}/start", json={"max_failure_feedback_chars": limit}
+    )
+    assert response.status_code == 422
+    assert harness.db.scalar(select(AgentRun)) is None
+
+
+def test_repair_reasoning_config_defaults_and_comparison_forwarding():
+    from app.schemas.agent_run import AgentRunConfig
+    from app.schemas.model_comparison import ModelComparisonRequest
+
+    default = AgentRunConfig()
+    assert default.require_hypothesis_update_after_failure is True
+    assert default.require_plan_update_after_failure is False
+    assert default.require_candidate_update_after_failure is False
+    assert default.max_failure_feedback_chars == 4096
+    request = ModelComparisonRequest(
+        models=[{"model_provider": "mock", "model_name": name} for name in ("a", "b")],
+        require_plan_update_after_failure=True,
+        require_candidate_update_after_failure=True,
+        max_failure_feedback_chars=1024,
+    )
+    assert all(
+        run.require_plan_update_after_failure
+        and run.require_candidate_update_after_failure
+        and run.max_failure_feedback_chars == 1024
+        for run in request.run_requests()
+    )
 
 
 def test_accepted_plan_remains_in_effect_across_patch_repairs(harness):
@@ -466,6 +799,12 @@ def test_failure_feedback_is_redacted_bounded_and_optional(harness, include_outp
             assert "truncated" in summary and "[REDACTED]" in summary
     assert "private-value" not in json.dumps(h.provider.conversations)
     assert "private-value" not in json.dumps(result)
+    feedback = json.dumps(h.provider.conversations)
+    assert "Structured failure analysis" in feedback
+    analyses = [
+        item for item in event_payloads(h, "test_failure_analysis") if item["phase"] == "post_patch"
+    ]
+    assert analyses
 
 
 def test_feedback_truncates_after_redaction_at_utf8_boundary():

@@ -57,7 +57,12 @@ from app.schemas.patch_review import (
 )
 from app.schemas.repository import RepositoryCreate, RepositoryRead
 from app.schemas.sandbox import SandboxCommandResult, SandboxRunRequest, SandboxRunResponse
+from app.schemas.targeted_tests import (
+    TargetedTestSelectionRead,
+    TargetedTestSelectionRequest,
+)
 from app.schemas.test_execution import TestExecutionRequest, TestExecutionResponse
+from app.schemas.test_failure_analysis import TestFailureAnalysisRead
 from app.schemas.test_result import TestResultCreate, TestResultRead
 
 __all__ = [
@@ -116,8 +121,11 @@ __all__ = [
     "SandboxCommandResult",
     "SandboxRunRequest",
     "SandboxRunResponse",
+    "TargetedTestSelectionRead",
+    "TargetedTestSelectionRequest",
     "TestExecutionRequest",
     "TestExecutionResponse",
+    "TestFailureAnalysisRead",
     "TestResultCreate",
     "TestResultRead",
     "WorkspaceDiffRead",

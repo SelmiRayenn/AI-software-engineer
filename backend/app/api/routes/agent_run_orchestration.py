@@ -40,12 +40,19 @@ def start_agent_run(
     workspace_preparer: WorkspacePreparerDep,
     provider_factory: ModelProviderFactoryDep,
 ) -> AgentRunStartResponse:
-    if request.run_hidden_tests:
+    if request.run_hidden_tests or request.targeted_tests_trusted_gold_files:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
-            detail="Hidden evaluation requires the trusted operator start endpoint.",
+            detail="Hidden or gold-assisted evaluation requires the trusted operator start endpoint.",
         )
-    return _start_run(benchmark_task_id, request, db, workspace_preparer, provider_factory)
+    return _start_run(
+        benchmark_task_id,
+        request,
+        db,
+        workspace_preparer,
+        provider_factory,
+        trusted_operator=False,
+    )
 
 
 @router.post("/{benchmark_task_id}/start-trusted", response_model=AgentRunStartResponse)
@@ -57,7 +64,14 @@ def start_agent_run_trusted(
     provider_factory: ModelProviderFactoryDep,
     _: TrustedOperator,
 ) -> AgentRunStartResponse:
-    return _start_run(benchmark_task_id, request, db, workspace_preparer, provider_factory)
+    return _start_run(
+        benchmark_task_id,
+        request,
+        db,
+        workspace_preparer,
+        provider_factory,
+        trusted_operator=True,
+    )
 
 
 def _start_run(
@@ -66,6 +80,8 @@ def _start_run(
     db: Session,
     workspace_preparer: GitSandboxWorkspacePreparer,
     provider_factory: ModelProviderFactory,
+    *,
+    trusted_operator: bool,
 ) -> AgentRunStartResponse:
     orchestrator = AgentRunOrchestrator(
         db=db,
@@ -76,6 +92,7 @@ def _start_run(
         return orchestrator.start_run(
             benchmark_task_id=benchmark_task_id,
             request=request,
+            trusted_operator=trusted_operator,
         )
     except BenchmarkTaskNotReadyError as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from exc
