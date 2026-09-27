@@ -10,6 +10,7 @@ from app.api.routes.agent_run_index import router as agent_run_index_router
 from app.api.routes.agent_run_metrics import router as agent_run_metrics_router
 from app.api.routes.agent_run_orchestration import router as agent_run_orchestration_router
 from app.api.routes.agent_run_patches import router as agent_run_patches_router
+from app.api.routes.agent_run_replay import router as agent_run_replay_router
 from app.api.routes.agent_run_reports import router as agent_run_reports_router
 from app.api.routes.agent_run_tests import router as agent_run_tests_router
 from app.api.routes.agent_run_trace import router as agent_run_trace_router
@@ -74,6 +75,7 @@ def create_app() -> FastAPI:
     app.include_router(agent_run_metrics_router)
     app.include_router(agent_run_patches_router)
     app.include_router(agent_run_reports_router)
+    app.include_router(agent_run_replay_router)
     app.include_router(agent_run_tests_router)
     app.include_router(agent_run_trace_router)
     app.include_router(model_comparison_router)

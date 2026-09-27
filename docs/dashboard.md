@@ -58,7 +58,10 @@ rate denominators are documented in [aggregate analytics](analytics.md#model-lea
 7. Review baseline, visible post-patch, and hidden evaluation status. The issue outcome shows a
    `1.0`, `0.75`, `0.5`, or `0.0` issue-specific score and labels visible-only outcomes as lower
    confidence when no hidden tests ran.
-8. Approve the patch with reviewer name and optional notes, or reject it with reviewer name and required notes.
+8. Review the readiness badge, code quality score, blockers, and warnings. Readiness summarizes
+   functional tests, hidden evaluation, lint/format policy, patch minimality, safety guardrails,
+   failures, and human review without allowing approval to override failed tests.
+9. Approve the patch with reviewer name and optional notes, or reject it with reviewer name and required notes.
 
 Approved patches become eligible for a future export or pull request creation flow. Rejected patches are blocked from export.
 

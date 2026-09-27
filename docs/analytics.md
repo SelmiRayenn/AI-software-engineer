@@ -19,6 +19,8 @@ trusted gold changed-file paths and returns missed paths; it never reads or retu
   matching runs.
 - `GET /analytics/file-localization` explains pre-edit file discovery and final edit alignment
   against trusted gold changed files.
+- `GET /analytics/repair-outcomes` measures whether additional patch attempts recover from an
+  unsuccessful first candidate.
 
 All endpoints accept these optional query parameters:
 
@@ -161,9 +163,43 @@ their miss-rate denominator is the number of eligible runs where that path was a
 route is intended for trusted evaluation and dashboard users because missed-path output is gold
 metadata. Gold paths are never included in prompts, task/run detail responses, or agent tools.
 
+## Repair outcomes
+
+Repair analytics primarily use ordered `repair_attempt_completed` and `repair_limit_reached`
+events. Patch version counts and numbered post-patch `TestResult` rows provide compatibility
+fallbacks for older runs. Final success comes from the selected patch's persisted evaluation
+metric, with `AgentRun.final_patch_passed_tests` used when metrics are unavailable. The endpoint
+never reads patch contents, test output, prompts, hidden tests, or gold solution data.
+
+The metrics use these denominators:
+
+- `total_runs_with_repairs`: runs that made at least one additional submission after the first.
+- `average_repair_attempts`: additional submissions used by those runs.
+- `repair_success_rate`: initially failed runs with at least one retry whose final selected patch
+  passed visible post-patch tests, divided by all initially failed runs with a retry.
+- `first_patch_pass_rate`: runs whose first assessed patch passed, divided by all matching runs
+  with an assessed first patch. It includes first-attempt successes that never needed repair.
+- `repaired_patch_pass_rate`: repair runs whose final selected patch passed, divided by all runs
+  with repairs. This can differ from repair success when a retry followed an invalid or untested
+  initial submission rather than a failed test.
+- `attempts_exhausted_rate`: repair runs with `repair_limit_reached` or a persisted
+  `max_repair_attempts_reached` failure, divided by all runs with repairs.
+- Cost and time averages use all repair runs; a missing evaluation metric contributes zero,
+  matching the existing aggregate cost convention.
+
+Initial failure categories count the first failed assessment once per run. Repair failure
+categories count failed additional attempts; exhausted runs also contribute
+`max_repair_attempts_reached`. Current events map failed tests directly to
+`post_patch_tests_failed`. Invalid legacy attempts use bounded summary signals to classify patch
+application, quality, or generation failure without returning the summary itself. Categories are
+ordered by descending count and then name.
+
+Model and repository tables use the same repair-run metrics and standard analytics filters. Empty
+populations return zero rates, zero averages, and empty lists.
+
 ## Dashboard
 
-The React dashboard exposes the aggregate APIs through four engineering-focused views:
+The React dashboard exposes the aggregate APIs through five engineering-focused views:
 
 - `/analytics` shows summary metrics and repository/pack breakdown tables.
 - `/leaderboard` shows one row per provider/model configuration with rank badges and the composite
@@ -172,6 +208,8 @@ The React dashboard exposes the aggregate APIs through four engineering-focused 
   categories, and provider/model error rates.
 - `/file-localization` shows inspection and candidate-ranking top-k accuracy, candidate hit rate by
   model, edit precision/recall, model and repository comparisons, and commonly missed gold paths.
+- `/repair-outcomes` shows first-patch and repaired-patch pass rates, exhaustion, cost/time, model
+  and repository breakdowns, and common initial/repair failure categories.
 
 All pages include provider, repository, and benchmark-pack filters plus explicit loading, empty,
 and error states. The provider selector on the leaderboard filters the returned rows in the

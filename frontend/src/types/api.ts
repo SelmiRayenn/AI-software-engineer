@@ -79,6 +79,10 @@ export interface AgentRunMetricSummary {
   lint_passed: boolean | null;
   format_check_passed: boolean | null;
   code_quality_passed: boolean | null;
+  code_quality_score: number;
+  review_ready: boolean;
+  review_blockers: string[];
+  review_warnings: string[];
   hidden_tests_passed: boolean | null;
   hidden_tests_run_count: number;
   hidden_tests_failed_count: number;
@@ -134,6 +138,8 @@ export interface AgentRunConfig {
   run_hidden_tests: boolean;
   run_lint_after_patch: boolean;
   run_format_check_after_patch: boolean;
+  block_on_lint_failure: boolean;
+  block_on_format_check_failure: boolean;
 }
 
 export interface AgentPromptPreview {
@@ -185,6 +191,10 @@ export interface EvaluationMetric {
   lint_passed: boolean | null;
   format_check_passed: boolean | null;
   code_quality_passed: boolean | null;
+  code_quality_score: number;
+  review_ready: boolean;
+  review_blockers: string[];
+  review_warnings: string[];
   hidden_tests_passed: boolean | null;
   hidden_tests_run_count: number;
   hidden_tests_failed_count: number;
@@ -244,6 +254,10 @@ export interface TraceMetricSummary {
   lint_passed: boolean | null;
   format_check_passed: boolean | null;
   code_quality_passed: boolean | null;
+  code_quality_score: number;
+  review_ready: boolean;
+  review_blockers: string[];
+  review_warnings: string[];
   hidden_tests_passed: boolean | null;
   hidden_tests_run_count: number;
   issue_resolved: boolean;
@@ -434,6 +448,41 @@ export interface ToolUsageAnalytics {
   tool_error_counts_by_type: Record<string, number>;
   runs_with_tool_errors: number;
   tool_errors_by_model: ToolErrorsByModel[];
+}
+
+export interface RepairFailureCount {
+  category: string;
+  count: number;
+}
+
+export interface RepairOutcomeMetricSet {
+  total_runs_with_repairs: number;
+  average_repair_attempts: number;
+  repair_success_rate: number;
+  repaired_patch_pass_rate: number;
+  attempts_exhausted_rate: number;
+  average_cost_with_repairs: number;
+  average_time_with_repairs: number;
+}
+
+export interface RepairSuccessByModel extends RepairOutcomeMetricSet {
+  model_provider: string;
+  model_name: string;
+}
+
+export interface RepairSuccessByRepository extends RepairOutcomeMetricSet {
+  repository_id: UUID;
+  repository_owner: string;
+  repository_name: string;
+  repository_url: string;
+}
+
+export interface RepairOutcomeAnalytics extends RepairOutcomeMetricSet {
+  first_patch_pass_rate: number;
+  most_common_initial_failure_categories: RepairFailureCount[];
+  most_common_repair_failure_categories: RepairFailureCount[];
+  repair_success_by_model: RepairSuccessByModel[];
+  repair_success_by_repository: RepairSuccessByRepository[];
 }
 
 export interface LocalizationMetricSet {

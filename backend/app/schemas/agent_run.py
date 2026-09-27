@@ -66,6 +66,10 @@ class AgentRunMetricSummary(BaseModel):
     lint_passed: bool | None = None
     format_check_passed: bool | None = None
     code_quality_passed: bool | None = None
+    code_quality_score: float = Field(default=0.0, ge=0.0, le=1.0)
+    review_ready: bool = False
+    review_blockers: list[str] = Field(default_factory=list)
+    review_warnings: list[str] = Field(default_factory=list)
     hidden_tests_passed: bool | None = None
     hidden_tests_run_count: int = 0
     hidden_tests_failed_count: int = 0
@@ -100,6 +104,8 @@ class AgentRunConfig(BaseModel):
     run_hidden_tests: bool = False
     run_lint_after_patch: bool = False
     run_format_check_after_patch: bool = False
+    block_on_lint_failure: bool = False
+    block_on_format_check_failure: bool = False
     require_plan_before_edit: bool = True
     max_plan_revisions: int = Field(default=2, ge=0, le=10, strict=True)
     plan_min_evidence_files: int = Field(default=1, ge=1, le=50, strict=True)

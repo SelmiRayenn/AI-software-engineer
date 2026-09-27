@@ -2,7 +2,7 @@ from datetime import datetime
 from typing import Literal
 from uuid import UUID
 
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, Field
 
 from app.schemas.agent_run import AgentRunConfig, AgentRunStartRequest
 from app.schemas.benchmark_task import AgentVisibleBenchmarkTaskRead
@@ -36,6 +36,10 @@ class PackTaskMetrics(BaseModel):
     lint_passed: bool | None = None
     format_check_passed: bool | None = None
     code_quality_passed: bool | None = None
+    code_quality_score: float = 0.0
+    review_ready: bool = False
+    review_blockers: list[str] = Field(default_factory=list)
+    review_warnings: list[str] = Field(default_factory=list)
     hidden_tests_passed: bool | None = None
     hidden_tests_run_count: int = 0
     hidden_tests_failed_count: int = 0

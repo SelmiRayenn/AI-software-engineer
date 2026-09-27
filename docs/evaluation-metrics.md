@@ -112,6 +112,34 @@ These fields do not alter `tests_passed`, `post_patch_tests_passed`, or `issue_r
 functional correctness separate from review quality while allowing dashboards and reports to flag
 a patch that passes tests but fails lint or formatting policy.
 
+### Review Readiness
+
+The final selected patch also receives an explainable review-readiness result:
+
+- `code_quality_score`: a bounded `0.0` to `1.0` score combining functional, quality, safety, and
+  minimality signals.
+- `review_ready`: true only when no blocking condition exists.
+- `review_blockers`: stable reason codes that must be resolved before review or publication.
+- `review_warnings`: non-blocking risks and lower-confidence signals.
+
+Visible test failure, hidden-test failure when hidden tests ran, patch application failure, hard
+patch-quality rejection, a persisted run failure, and rejected human review always block
+readiness. Human approval is reflected through the patch review status but never overrides failed
+tests or safety blockers. Missing hidden evaluation adds `hidden_tests_not_run` and subtracts 0.05
+from the score without blocking readiness.
+
+Lint and formatting failures are warnings by default. A run can set
+`block_on_lint_failure=true` or `block_on_format_check_failure=true` to promote the corresponding
+failure to a blocker. The score starts at 1.0 and applies documented bounded deductions: patch
+application 0.30, visible tests 0.35, hidden tests 0.20, lint 0.10, formatting 0.05, hard quality
+rejection 0.30, the patch minimality gap up to 0.25, unrelated files up to 0.20, trusted guardrail
+override 0.10, persisted run failure 0.20, and rejected review 0.20. Soft quality warnings and
+missing quality analysis have small bounded deductions. The result is clamped and rounded to four
+decimals; readiness depends on blockers rather than an arbitrary score threshold.
+
+Readiness is recomputed when evaluation runs and when a human review changes, so a rejection is
+immediately reflected in run detail, patch quality, reports, and dashboard responses.
+
 ### Modified And Unrelated Files
 
 `modified_files_count` is the number of files listed on the `GeneratedPatch`.

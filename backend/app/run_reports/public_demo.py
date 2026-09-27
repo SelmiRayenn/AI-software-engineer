@@ -241,6 +241,8 @@ class PublicDemoSnapshotService:
                 if quality and quality.minimization_version >= 1
                 else []
             ),
+            code_quality_score=metric.code_quality_score if metric else None,
+            review_ready=metric.review_ready if metric else None,
             started_at=run.started_at,
             completed_at=run.completed_at,
         )
@@ -320,9 +322,9 @@ def _append_run_table(lines: list[str], heading: str, runs: list[PublicDemoRun])
         [
             (
                 "| Repository | Task | Model | Status | Resolved | Visible | Hidden | "
-                "Localization | Minimality | Cost | Time | Failure category |"
+                "Localization | Minimality | Quality | Review ready | Cost | Time | Failure category |"
             ),
-            "| --- | --- | --- | --- | --- | --- | --- | ---: | ---: | ---: | ---: | --- |",
+            "| --- | --- | --- | --- | --- | --- | --- | ---: | ---: | ---: | --- | ---: | ---: | --- |",
         ]
     )
     for run in runs:
@@ -338,11 +340,14 @@ def _append_run_table(lines: list[str], heading: str, runs: list[PublicDemoRun])
         minimality = (
             "N/A" if run.patch_minimization_score is None else f"{run.patch_minimization_score:.4f}"
         )
+        quality = "N/A" if run.code_quality_score is None else f"{run.code_quality_score:.4f}"
+        review_ready = "N/A" if run.review_ready is None else _yes_no(run.review_ready)
         lines.append(
             f"| {_md_cell(f'{run.repository_owner}/{run.repository_name}')} | "
             f"{_md_cell(issue)} | {_md_cell(f'{run.model_provider}/{run.model_name}')} | "
             f"{_md_cell(run.run_status)} | {_yes_no(run.issue_resolved)} | "
             f"{_yes_no(run.visible_tests_passed)} | {hidden} | {localization} | {minimality} | "
+            f"{quality} | {review_ready} | "
             f"${run.estimated_cost:.8f} | {run.execution_time_seconds:.4f}s | "
             f"{_md_cell(run.failure_category or '')} |"
         )

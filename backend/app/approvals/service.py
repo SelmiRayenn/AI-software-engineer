@@ -15,6 +15,7 @@ from app.core.review_decisions import (
     REVIEW_STATUS_REJECTED,
 )
 from app.models import AgentEvent, GeneratedPatch, HumanReview
+from app.review_readiness import ReviewReadinessService
 
 
 class PatchApprovalError(RuntimeError):
@@ -131,6 +132,7 @@ class PatchApprovalService:
         self._db.commit()
         self._db.refresh(review)
         self._log_review_event(generated_patch, review, updated=existing_review is not None)
+        ReviewReadinessService(self._db).refresh(generated_patch.agent_run_id)
         return self.review_status(generated_patch.id)
 
     def _get_generated_patch(self, generated_patch_id: UUID) -> GeneratedPatch:

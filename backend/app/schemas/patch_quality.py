@@ -35,6 +35,10 @@ class PatchQualityRead(BaseModel):
     lockfiles: list[str] = Field(default_factory=list)
     warnings: list[str] = Field(default_factory=list)
     hard_limit_violations: list[str] = Field(default_factory=list)
+    code_quality_score: float | None = Field(default=None, ge=0.0, le=1.0)
+    review_ready: bool | None = None
+    review_blockers: list[str] = Field(default_factory=list)
+    review_warnings: list[str] = Field(default_factory=list)
     max_patch_files: int
     max_patch_changed_lines: int
     created_at: datetime

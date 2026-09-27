@@ -11,6 +11,7 @@ from app.schemas.analytics import (
     FileLocalizationAnalytics,
     ModelLeaderboardRow,
     PackAnalytics,
+    RepairOutcomeAnalytics,
     RepositoryAnalytics,
     ToolUsageAnalytics,
 )
@@ -66,6 +67,11 @@ def get_tool_usage(filters: AnalyticsFiltersDep, db: DbSession) -> ToolUsageAnal
 @router.get("/file-localization", response_model=FileLocalizationAnalytics)
 def get_file_localization(filters: AnalyticsFiltersDep, db: DbSession) -> FileLocalizationAnalytics:
     return AnalyticsService(db).file_localization(filters)
+
+
+@router.get("/repair-outcomes", response_model=RepairOutcomeAnalytics)
+def get_repair_outcomes(filters: AnalyticsFiltersDep, db: DbSession) -> RepairOutcomeAnalytics:
+    return AnalyticsService(db).repair_outcomes(filters)
 
 
 @router.get("/model-leaderboard", response_model=list[ModelLeaderboardRow])

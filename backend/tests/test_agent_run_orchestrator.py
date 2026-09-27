@@ -591,6 +591,8 @@ def test_run_configuration_and_prompt_preview_are_stored_and_inspectable(
         "targeted_tests_trusted_gold_files": False,
         "run_lint_after_patch": False,
         "run_format_check_after_patch": False,
+        "block_on_lint_failure": False,
+        "block_on_format_check_failure": False,
     }
 
     response = client.post(f"/agent-runs/{task_id}/start", json=request_payload)

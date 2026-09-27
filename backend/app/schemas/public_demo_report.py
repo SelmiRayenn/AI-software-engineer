@@ -51,6 +51,8 @@ class PublicDemoRun(BaseModel):
     failure_category: str | None = None
     patch_minimization_score: float | None = None
     patch_minimization_warnings: list[str] = Field(default_factory=list)
+    code_quality_score: float | None = None
+    review_ready: bool | None = None
     started_at: datetime
     completed_at: datetime | None = None
 

@@ -97,6 +97,41 @@ class ToolUsageAnalytics(BaseModel):
     tool_errors_by_model: list[ToolErrorsByModel] = Field(default_factory=list)
 
 
+class RepairFailureCount(BaseModel):
+    category: str
+    count: int
+
+
+class RepairOutcomeMetricSet(BaseModel):
+    total_runs_with_repairs: int = 0
+    average_repair_attempts: float = 0.0
+    repair_success_rate: float = 0.0
+    repaired_patch_pass_rate: float = 0.0
+    attempts_exhausted_rate: float = 0.0
+    average_cost_with_repairs: float = 0.0
+    average_time_with_repairs: float = 0.0
+
+
+class RepairSuccessByModel(RepairOutcomeMetricSet):
+    model_provider: str
+    model_name: str
+
+
+class RepairSuccessByRepository(RepairOutcomeMetricSet):
+    repository_id: UUID
+    repository_owner: str
+    repository_name: str
+    repository_url: str
+
+
+class RepairOutcomeAnalytics(RepairOutcomeMetricSet):
+    first_patch_pass_rate: float = 0.0
+    most_common_initial_failure_categories: list[RepairFailureCount] = Field(default_factory=list)
+    most_common_repair_failure_categories: list[RepairFailureCount] = Field(default_factory=list)
+    repair_success_by_model: list[RepairSuccessByModel] = Field(default_factory=list)
+    repair_success_by_repository: list[RepairSuccessByRepository] = Field(default_factory=list)
+
+
 class LocalizationMetricSet(BaseModel):
     total_runs_with_gold_files: int = 0
     runs_with_candidate_files: int = 0

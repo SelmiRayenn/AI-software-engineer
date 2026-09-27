@@ -16,6 +16,7 @@ from app.models import (
     AgentEvent,
     AgentRun,
     BenchmarkTask,
+    EvaluationMetric,
     GeneratedPatch,
     GoldPatch,
     PatchQuality,
@@ -382,6 +383,8 @@ def test_quality_metrics_are_stored_and_warnings_exposed(
     assert payload["hard_limit_violations"] == [
         "Source files must be candidate-ranked before editing: src/other.py."
     ]
+    assert payload["code_quality_score"] is None
+    assert payload["review_ready"] is None
     with TestingSessionLocal() as session:
         stored = session.scalar(
             select(PatchQuality).where(PatchQuality.generated_patch_id == patch.id)
@@ -398,6 +401,38 @@ def test_missing_patch_quality_returns_404(client: TestClient) -> None:
 
     assert response.status_code == 404
     assert response.json()["detail"] == "Generated patch not found."
+
+
+def test_quality_response_includes_selected_patch_review_readiness(
+    client: TestClient,
+    db: Session,
+) -> None:
+    task = create_task(db, gold_files=["src/example.py"])
+    patch = create_patch(db, task.id, patch_for("src/example.py"), ["src/example.py"])
+    db.add(
+        EvaluationMetric(
+            agent_run_id=patch.agent_run_id,
+            patch_applied=True,
+            tests_passed=True,
+            baseline_tests_passed=True,
+            post_patch_tests_passed=True,
+            code_quality_score=0.9,
+            review_ready=True,
+            review_blockers=[],
+            review_warnings=["hidden_tests_not_run"],
+        )
+    )
+    db.commit()
+
+    response = client.get(f"/patches/{patch.id}/quality")
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["code_quality_score"] == pytest.approx(0.6175)
+    assert payload["review_ready"] is False
+    assert payload["review_blockers"] == ["patch_quality_rejected"]
+    assert "hidden_tests_not_run" in payload["review_warnings"]
+    assert "uninspected_file_modified" in payload["review_warnings"]
 
 
 def create_task(

@@ -118,6 +118,10 @@ def test_metrics_included_when_present(client: TestClient, db: Session) -> None:
     assert metrics["tokens_used"] == 123
     assert metrics["estimated_cost"] == 0.05
     assert metrics["execution_time_seconds"] == 4.2
+    assert metrics["code_quality_score"] == 0.88
+    assert metrics["review_ready"] is True
+    assert metrics["review_blockers"] == []
+    assert metrics["review_warnings"] == ["hidden_tests_not_run"]
 
 
 def test_gold_patch_data_is_not_exposed(client: TestClient, db: Session) -> None:
@@ -220,6 +224,10 @@ def create_run(
                 tokens_used=123,
                 estimated_cost=0.05,
                 execution_time_seconds=4.2,
+                code_quality_score=0.88,
+                review_ready=True,
+                review_blockers=[],
+                review_warnings=["hidden_tests_not_run"],
             )
         )
 

@@ -4,6 +4,7 @@ export type RouteState =
   | { name: "leaderboard"; path: string }
   | { name: "tool-usage"; path: string }
   | { name: "file-localization"; path: string }
+  | { name: "repair-outcomes"; path: string }
   | { name: "tasks"; path: string }
   | { name: "runs"; path: string }
   | { name: "run-detail"; path: string; runId: string };
@@ -24,6 +25,9 @@ export function parseRoute(pathname: string): RouteState {
   }
   if (parts[0] === "file-localization") {
     return { name: "file-localization", path: "/file-localization" };
+  }
+  if (parts[0] === "repair-outcomes") {
+    return { name: "repair-outcomes", path: "/repair-outcomes" };
   }
   if (parts[0] === "tasks") {
     return { name: "tasks", path: "/tasks" };

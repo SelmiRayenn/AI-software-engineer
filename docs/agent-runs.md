@@ -178,6 +178,29 @@ definitions are removed. Hidden evaluation events expose aggregate status only.
 The trace is an operator-facing audit view. It does not mutate the run, execute tools, rerun tests,
 or expose the benchmark's trusted solution data.
 
+## Replay Snapshot
+
+```text
+GET /agent-runs/{run_id}/replay-snapshot
+GET /agent-runs/{run_id}/replay-snapshot?format=md
+```
+
+Replay snapshots capture the persisted agent-visible task context, provider/model, validated run
+configuration, rendered prompt sections, allowed tools, ordered tool calls, model response
+summaries, patch-version references, test-phase outcomes, failure classification, and evaluation
+metrics. They are inspection artifacts only: requesting one never calls a model, executes a tool,
+applies a patch, or reruns a test.
+
+The integrity section records the export time, application version, optional `SOURCE_COMMIT_SHA`,
+event/patch/test counts, and a SHA-256 checksum. The checksum excludes the export timestamp and
+checksum field, so unchanged stored run content produces the same checksum on repeated exports.
+
+Replay safety is intentionally stricter than the normal trace view. Gold solutions and hidden-test
+definitions are never queried. Hidden evaluation is aggregate-only. Prompt, issue, event, and model
+text is redacted and bounded. Raw file bodies, patch bodies, command output, and provider raw
+responses are omitted from tool outputs; structured outcomes and safe paths remain available.
+Fields expose truncation/redaction metadata at the snapshot level and on bounded text values.
+
 ## Safety
 
 Prompt templates live in `backend/app/agents/prompts.py`. They cover the system role,

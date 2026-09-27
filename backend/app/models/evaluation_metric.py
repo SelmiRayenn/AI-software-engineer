@@ -3,9 +3,9 @@ from __future__ import annotations
 import uuid
 from typing import TYPE_CHECKING
 
-from sqlalchemy import Boolean, Float, ForeignKey, Integer, false
+from sqlalchemy import Boolean, Float, ForeignKey, Integer, false, text
 from sqlalchemy.orm import Mapped, mapped_column, relationship
-from sqlalchemy.types import Uuid
+from sqlalchemy.types import JSON, Uuid
 
 from app.db.base import Base
 from app.models.mixins import CreatedAtMixin, UUIDPrimaryKeyMixin
@@ -36,6 +36,18 @@ class EvaluationMetric(UUIDPrimaryKeyMixin, CreatedAtMixin, Base):
     lint_passed: Mapped[bool | None] = mapped_column(Boolean, nullable=True)
     format_check_passed: Mapped[bool | None] = mapped_column(Boolean, nullable=True)
     code_quality_passed: Mapped[bool | None] = mapped_column(Boolean, nullable=True)
+    code_quality_score: Mapped[float] = mapped_column(
+        Float, default=0.0, server_default="0", nullable=False
+    )
+    review_ready: Mapped[bool] = mapped_column(
+        Boolean, default=False, server_default=false(), nullable=False
+    )
+    review_blockers: Mapped[list[str]] = mapped_column(
+        JSON, default=list, server_default=text("'[]'"), nullable=False
+    )
+    review_warnings: Mapped[list[str]] = mapped_column(
+        JSON, default=list, server_default=text("'[]'"), nullable=False
+    )
     hidden_tests_passed: Mapped[bool | None] = mapped_column(Boolean, nullable=True)
     hidden_tests_run_count: Mapped[int] = mapped_column(
         Integer, default=0, server_default="0", nullable=False

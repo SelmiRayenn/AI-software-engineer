@@ -25,6 +25,7 @@ services:
     restart: unless-stopped
     environment:
       APP_ENV: ${APP_ENV:-development}
+      SOURCE_COMMIT_SHA: ${SOURCE_COMMIT_SHA:-}
       DATABASE_URL: ${DATABASE_URL:-postgresql+psycopg://benchmark:benchmark@postgres:5432/agent_benchmark}
       DATABASE_AUTO_CREATE_TABLES: ${DATABASE_AUTO_CREATE_TABLES:-false}
       BACKEND_CORS_ORIGINS: ${BACKEND_CORS_ORIGINS:-http://localhost:5173,http://127.0.0.1:5173}

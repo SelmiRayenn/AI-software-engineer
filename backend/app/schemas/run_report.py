@@ -132,6 +132,10 @@ class ReportEvaluationMetrics(BaseModel):
     lint_passed: bool | None = None
     format_check_passed: bool | None = None
     code_quality_passed: bool | None = None
+    code_quality_score: float = 0.0
+    review_ready: bool = False
+    review_blockers: list[str] = Field(default_factory=list)
+    review_warnings: list[str] = Field(default_factory=list)
     hidden_tests_passed: bool | None = None
     hidden_tests_run_count: int
     hidden_tests_failed_count: int

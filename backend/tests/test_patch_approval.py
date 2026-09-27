@@ -16,6 +16,7 @@ from app.main import app
 from app.models import (
     AgentRun,
     BenchmarkTask,
+    EvaluationMetric,
     GeneratedPatch,
     HumanReview,
     Repository,
@@ -171,6 +172,34 @@ def test_rejected_patch_is_blocked_from_export_placeholder(db: Session) -> None:
 
     with pytest.raises(PatchApprovalExportBlockedError):
         service.ensure_patch_exportable(patch_id)
+
+
+def test_rejected_review_recomputes_existing_review_readiness(db: Session) -> None:
+    patch_id = create_generated_patch(db)
+    patch = db.get(GeneratedPatch, patch_id)
+    db.add(
+        EvaluationMetric(
+            agent_run_id=patch.agent_run_id,
+            patch_applied=True,
+            tests_passed=True,
+            baseline_tests_passed=True,
+            post_patch_tests_passed=True,
+            review_ready=True,
+        )
+    )
+    db.commit()
+
+    PatchApprovalService(db=db).reject_patch(
+        patch_id,
+        reviewer_name="Grace",
+        review_notes="Not acceptable for review.",
+    )
+
+    metric = db.scalar(
+        select(EvaluationMetric).where(EvaluationMetric.agent_run_id == patch.agent_run_id)
+    )
+    assert metric.review_ready is False
+    assert "human_review_rejected" in metric.review_blockers
 
 
 def test_approved_patch_is_exportable(db: Session) -> None:

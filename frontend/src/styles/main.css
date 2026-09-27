@@ -616,6 +616,22 @@ select {
   gap: 16px;
 }
 
+.repair-outcome-panels {
+  display: grid;
+  gap: 16px;
+}
+
+.repair-breakdown-panel table {
+  min-width: 980px;
+  font-variant-numeric: tabular-nums;
+}
+
+.repair-failure-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 16px;
+}
+
 .localization-table-panel table {
   min-width: 1120px;
   font-variant-numeric: tabular-nums;
@@ -898,6 +914,75 @@ select {
   color: #9f1d1d;
 }
 
+.review-readiness-summary {
+  grid-column: 1 / -1;
+  padding: 14px;
+  border-right: 1px solid #e5ebf1;
+  border-bottom: 1px solid #e5ebf1;
+  background: #fff;
+}
+
+.review-readiness-header,
+.review-readiness-reasons {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  gap: 18px;
+}
+
+.review-readiness-header > div,
+.review-readiness-reasons > div {
+  display: grid;
+  gap: 5px;
+}
+
+.review-readiness-header span,
+.review-readiness-reasons span {
+  color: #607086;
+  font-size: 12px;
+  font-weight: 800;
+  text-transform: uppercase;
+}
+
+.review-readiness-badge {
+  align-self: start;
+  padding: 5px 9px;
+  border: 1px solid #e5b4b4;
+  border-radius: 5px;
+  background: #fff1f1;
+  color: #9f1d1d !important;
+}
+
+.review-readiness-badge[data-ready="true"] {
+  border-color: #a9d6bf;
+  background: #eef9f3;
+  color: #11633d !important;
+}
+
+.review-readiness-reasons {
+  margin-top: 14px;
+  padding-top: 12px;
+  border-top: 1px solid #e5ebf1;
+}
+
+.review-readiness-reasons > div {
+  flex: 1;
+  min-width: min(240px, 100%);
+}
+
+.review-readiness-reasons ul,
+.review-readiness-reasons p {
+  margin: 0;
+  padding-left: 18px;
+  color: #344255;
+  font-size: 13px;
+  line-height: 1.55;
+}
+
+.review-readiness-reasons p {
+  padding-left: 0;
+}
+
 #generated-patch,
 #test-results,
 #evaluation-metrics {
@@ -1116,7 +1201,8 @@ select {
   .metric-grid,
   .analytics-metric-grid,
   .analytics-group-grid,
-  .tool-usage-panels {
+  .tool-usage-panels,
+  .repair-failure-grid {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 }
@@ -1163,7 +1249,8 @@ select {
   .metric-grid,
   .analytics-metric-grid,
   .analytics-group-grid,
-  .tool-usage-panels {
+  .tool-usage-panels,
+  .repair-failure-grid {
     grid-template-columns: 1fr;
   }
 

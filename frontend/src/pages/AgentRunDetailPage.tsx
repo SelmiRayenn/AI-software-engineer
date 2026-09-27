@@ -554,6 +554,12 @@ export function AgentRunDetailPage({ runId, onNavigate }: AgentRunDetailPageProp
               value={optionalCheckStatus(state.run.metric_summary.code_quality_passed)}
             />
             <MetricItem
+              detail="Functional, safety, quality, and minimality signals"
+              label="Quality Score"
+              tone={state.run.metric_summary.review_ready ? "positive" : "negative"}
+              value={formatPercent(state.run.metric_summary.code_quality_score)}
+            />
+            <MetricItem
               detail={
                 state.run.metric_summary.hidden_tests_run_count > 0
                   ? `${state.run.metric_summary.hidden_tests_run_count} commands run`
@@ -598,6 +604,24 @@ export function AgentRunDetailPage({ runId, onNavigate }: AgentRunDetailPageProp
               label="Execution Time"
               value={formatSeconds(state.run.metric_summary.execution_time_seconds)}
             />
+            <div className="review-readiness-summary">
+              <div className="review-readiness-header">
+                <div>
+                  <span>Review readiness</span>
+                  <strong>Patch review decision support</strong>
+                </div>
+                <span
+                  className="review-readiness-badge"
+                  data-ready={state.run.metric_summary.review_ready}
+                >
+                  {state.run.metric_summary.review_ready ? "Ready" : "Blocked"}
+                </span>
+              </div>
+              <ReadinessReasons
+                blockers={state.run.metric_summary.review_blockers}
+                warnings={state.run.metric_summary.review_warnings}
+              />
+            </div>
           </div>
         ) : (
           <p className="muted">Metrics have not been calculated for this run yet.</p>
@@ -677,8 +701,44 @@ function MetricItem({
   );
 }
 
+function ReadinessReasons({
+  blockers,
+  warnings,
+}: {
+  blockers: string[];
+  warnings: string[];
+}) {
+  return (
+    <div className="review-readiness-reasons">
+      <div>
+        <span>Blockers</span>
+        {blockers.length ? (
+          <ul>{blockers.map((item) => <li key={item}>{readinessLabel(item)}</li>)}</ul>
+        ) : (
+          <p>None</p>
+        )}
+      </div>
+      <div>
+        <span>Warnings</span>
+        {warnings.length ? (
+          <ul>{warnings.map((item) => <li key={item}>{readinessLabel(item)}</li>)}</ul>
+        ) : (
+          <p>None</p>
+        )}
+      </div>
+    </div>
+  );
+}
+
 function testStatus(passed: boolean): string {
   return passed ? "Passed" : "Failed";
+}
+
+function readinessLabel(value: string): string {
+  return value
+    .split("_")
+    .map((part) => `${part.slice(0, 1).toUpperCase()}${part.slice(1)}`)
+    .join(" ");
 }
 
 function optionalCheckStatus(passed: boolean | null): string {

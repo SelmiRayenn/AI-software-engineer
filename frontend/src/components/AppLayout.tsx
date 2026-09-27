@@ -13,6 +13,7 @@ const navItems = [
   { label: "Leaderboard", path: "/leaderboard" },
   { label: "Tool Usage", path: "/tool-usage" },
   { label: "Localization", path: "/file-localization" },
+  { label: "Repairs", path: "/repair-outcomes" },
   { label: "Benchmark Tasks", path: "/tasks" },
   { label: "Agent Runs", path: "/runs" },
 ];
@@ -67,6 +68,9 @@ function isActive(route: RouteState, path: string): boolean {
   }
   if (path === "/file-localization") {
     return route.name === "file-localization";
+  }
+  if (path === "/repair-outcomes") {
+    return route.name === "repair-outcomes";
   }
   if (path === "/runs") {
     return route.name === "runs" || route.name === "run-detail";

@@ -266,6 +266,10 @@ def create_report_run(db: Session, *, decision: str = "approved") -> AgentRun:
                 lint_passed=False,
                 format_check_passed=True,
                 code_quality_passed=False,
+                code_quality_score=0.35,
+                review_ready=False,
+                review_blockers=["visible_tests_failed", "hidden_tests_failed"],
+                review_warnings=["lint_failed", "broad_patch"],
                 hidden_tests_passed=False,
                 hidden_tests_run_count=1,
                 hidden_tests_failed_count=1,
@@ -314,6 +318,11 @@ def test_json_report_contains_safe_complete_run_summary(client: TestClient) -> N
     assert payload["evaluation_metrics"]["lint_passed"] is False
     assert payload["evaluation_metrics"]["format_check_passed"] is True
     assert payload["evaluation_metrics"]["code_quality_passed"] is False
+    assert payload["evaluation_metrics"]["code_quality_score"] == 0.0
+    assert payload["evaluation_metrics"]["review_ready"] is False
+    assert "visible_tests_failed" in payload["evaluation_metrics"]["review_blockers"]
+    assert "hidden_tests_failed" in payload["evaluation_metrics"]["review_blockers"]
+    assert "run_failure" in payload["evaluation_metrics"]["review_blockers"]
     assert payload["failure"]["category"] == "post_patch_tests_failed"
     assert payload["human_review"]["status"] == "approved"
     assert payload["usage"] == {
@@ -374,6 +383,7 @@ def test_markdown_report_has_expected_sections_and_truncation_notes(
         "## Trace Summary",
         "## Patch Quality",
         "## Test Results",
+        "## Review Readiness",
         "## Hidden Evaluation Summary",
         "## Code Quality Summary",
         "## Evaluation Metrics",
@@ -390,6 +400,8 @@ def test_markdown_report_has_expected_sections_and_truncation_notes(
     assert "### Lint" in response.text
     assert "### Format Check" in response.text
     assert "Overall code quality: no" in response.text
+    assert "Review ready: no" in response.text
+    assert "Code quality score: 0.0000" in response.text
     assert "GOLD_PATCH_MUST_NOT_APPEAR" not in response.text
     assert "HIDDEN_RESULT_COMMAND_MUST_NOT_APPEAR" not in response.text
     assert "secret-token-value" not in response.text

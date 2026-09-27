@@ -16,6 +16,7 @@ import type {
   PatchReviewRequest,
   Repository,
   RepositoryAnalytics,
+  RepairOutcomeAnalytics,
   TestResult,
   ToolUsageAnalytics,
   UUID,
@@ -117,6 +118,14 @@ export async function getFileLocalization(
 ): Promise<FileLocalizationAnalytics> {
   return requestJson<FileLocalizationAnalytics>(
     `/analytics/file-localization${analyticsQuery(filters)}`,
+  );
+}
+
+export async function getRepairOutcomes(
+  filters: AnalyticsFilters = {},
+): Promise<RepairOutcomeAnalytics> {
+  return requestJson<RepairOutcomeAnalytics>(
+    `/analytics/repair-outcomes${analyticsQuery(filters)}`,
   );
 }
 

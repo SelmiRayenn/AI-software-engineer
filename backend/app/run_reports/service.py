@@ -16,6 +16,7 @@ from app.core.test_phases import TEST_PHASE_HIDDEN_EVAL
 from app.evaluation.service import model_usage_totals
 from app.models import AgentEvent, AgentRun, TestResult
 from app.patch_quality import PatchQualityService
+from app.review_readiness import ReviewReadinessService
 from app.run_traces import AgentRunTraceService
 from app.schemas.agent_run import AgentRunConfig
 from app.schemas.run_report import (
@@ -75,7 +76,7 @@ class AgentRunReportService:
         patch = run.generated_patch
         if patch is not None:
             PatchQualityService(self.db).get_or_create(patch.id)
-        metric = run.evaluation_metric
+        metric = ReviewReadinessService(self.db).refresh(run.id) or run.evaluation_metric
         events = sorted(run.events, key=lambda event: (event.created_at, event.id))
         test_results = sorted(
             run.test_results,
@@ -304,6 +305,20 @@ class AgentRunReportService:
                 )
                 _append_log(lines, "stdout", result.stdout)
                 _append_log(lines, "stderr", result.stderr)
+
+        lines.extend(["", "## Review Readiness", ""])
+        if report.evaluation_metrics is None:
+            lines.append("Review readiness has not been calculated.")
+        else:
+            metrics = report.evaluation_metrics
+            lines.extend(
+                [
+                    f"- Review ready: {'yes' if metrics.review_ready else 'no'}",
+                    f"- Code quality score: {metrics.code_quality_score:.4f}",
+                    f"- Blockers: {', '.join(metrics.review_blockers) or 'None'}",
+                    f"- Warnings: {', '.join(metrics.review_warnings) or 'None'}",
+                ]
+            )
 
         lines.extend(["", "## Code Quality Summary", ""])
         if report.evaluation_metrics is None:

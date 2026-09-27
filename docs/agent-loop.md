@@ -302,6 +302,12 @@ Metrics use the selected patch and its post-patch results, excluding earlier can
 ad-hoc `run_tests` observations. Tokens, cost, elapsed time, and inspected files still cover the
 entire run. Completed and terminal failed repair runs with a selected patch are evaluated.
 
+`GET /analytics/repair-outcomes` aggregates the immutable attempt events, patch versions,
+post-patch results, selected-patch metrics, and failure classifications. It reports first-patch
+success separately from recovery after retries, tracks exhausted budgets, and compares repair
+effectiveness by model and repository. See [repair outcome analytics](analytics.md#repair-outcomes)
+for exact denominators and compatibility fallbacks.
+
 Apply Alembic revision `20260909_0004` before starting the updated backend. It retains existing
 patch IDs, reviews, and logs, and assigns existing patches version 1. Downgrading is refused when
 multiple versions exist for a run, because the old schema cannot preserve that history.

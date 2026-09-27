@@ -82,6 +82,10 @@ def test_sqlalchemy_metadata_can_be_loaded() -> None:
         "lint_passed",
         "format_check_passed",
         "code_quality_passed",
+        "code_quality_score",
+        "review_ready",
+        "review_blockers",
+        "review_warnings",
     }.issubset(Base.metadata.tables["evaluation_metrics"].columns.keys())
     assert {
         "changed_hunk_count",
@@ -211,6 +215,25 @@ def test_lint_format_migration_roundtrips_quality_columns(tmp_path: Path) -> Non
     command.downgrade(config, "20260926_0014")
     assert "lint_commands" not in _column_names(inspect(engine), "benchmark_tasks")
     assert "lint_passed" not in _column_names(inspect(engine), "evaluation_metrics")
+    engine.dispose()
+
+
+def test_review_readiness_migration_roundtrips_metric_columns(tmp_path: Path) -> None:
+    database_url = f"sqlite:///{(tmp_path / 'review-readiness.db').as_posix()}"
+    config = make_alembic_config(database_url)
+    command.upgrade(config, "20260927_0015")
+    engine = create_engine(database_url)
+
+    command.upgrade(config, "head")
+    assert {
+        "code_quality_score",
+        "review_ready",
+        "review_blockers",
+        "review_warnings",
+    }.issubset(_column_names(inspect(engine), "evaluation_metrics"))
+
+    command.downgrade(config, "20260927_0015")
+    assert "review_ready" not in _column_names(inspect(engine), "evaluation_metrics")
     engine.dispose()
 
 

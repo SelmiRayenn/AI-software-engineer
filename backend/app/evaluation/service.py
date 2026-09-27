@@ -14,6 +14,7 @@ from app.core.test_phases import (
     TEST_PHASE_POST_PATCH,
 )
 from app.models import AgentEvent, AgentRun, EvaluationMetric, GeneratedPatch, GoldPatch, TestResult
+from app.review_readiness import ReviewReadinessService
 
 
 class EvaluationError(RuntimeError):
@@ -122,6 +123,7 @@ class EvaluationService:
 
         self._db.commit()
         self._db.refresh(metric)
+        metric = ReviewReadinessService(self._db).refresh(self._agent_run_id) or metric
         self._log_evaluation(metric)
         return metric
 
@@ -317,6 +319,10 @@ class EvaluationService:
                     "lint_passed": metric.lint_passed,
                     "format_check_passed": metric.format_check_passed,
                     "code_quality_passed": metric.code_quality_passed,
+                    "code_quality_score": metric.code_quality_score,
+                    "review_ready": metric.review_ready,
+                    "review_blockers": metric.review_blockers,
+                    "review_warnings": metric.review_warnings,
                     "hidden_tests_passed": metric.hidden_tests_passed,
                     "hidden_tests_run_count": metric.hidden_tests_run_count,
                     "hidden_tests_failed_count": metric.hidden_tests_failed_count,

@@ -6,6 +6,7 @@ from sqlalchemy.orm import Session
 
 from app.db.session import get_db
 from app.patch_quality import PatchQualityNotFoundError, PatchQualityService
+from app.review_readiness import ReviewReadinessService
 from app.schemas.patch_quality import PatchQualityRead
 
 router = APIRouter(prefix="/patches", tags=["patch quality"])
@@ -19,6 +20,15 @@ def get_patch_quality(patch_id: UUID, db: DbSession) -> PatchQualityRead:
         quality = service.get_or_create(patch_id)
     except PatchQualityNotFoundError as exc:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
+
+    run = quality.generated_patch.agent_run
+    selected_patch = run.generated_patch
+    metric = run.evaluation_metric
+    if metric is not None and selected_patch is not None and selected_patch.id == patch_id:
+        metric = ReviewReadinessService(db).refresh(run.id) or metric
+    readiness_available = bool(
+        metric is not None and selected_patch is not None and selected_patch.id == patch_id
+    )
 
     return PatchQualityRead(
         patch_id=quality.generated_patch_id,
@@ -51,6 +61,10 @@ def get_patch_quality(patch_id: UUID, db: DbSession) -> PatchQualityRead:
         lockfiles=quality.lockfiles,
         warnings=quality.warnings,
         hard_limit_violations=quality.hard_limit_violations,
+        code_quality_score=metric.code_quality_score if readiness_available else None,
+        review_ready=metric.review_ready if readiness_available else None,
+        review_blockers=metric.review_blockers if readiness_available else [],
+        review_warnings=metric.review_warnings if readiness_available else [],
         max_patch_files=quality.max_patch_files,
         max_patch_changed_lines=quality.max_patch_changed_lines,
         created_at=quality.created_at,

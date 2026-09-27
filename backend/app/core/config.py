@@ -8,6 +8,7 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 class Settings(BaseSettings):
     app_name: str = "AI Software Engineering Agent Benchmark Platform"
     app_version: str = "0.1.0"
+    source_commit_sha: str | None = Field(default=None, alias="SOURCE_COMMIT_SHA")
     app_env: str = Field(default="development", alias="APP_ENV")
     database_url: str = Field(
         default="postgresql+psycopg://benchmark:benchmark@localhost:5432/agent_benchmark",

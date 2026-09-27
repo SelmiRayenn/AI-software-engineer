@@ -11,6 +11,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session, joinedload, selectinload
 
 from app.analytics.file_localization import build_file_localization_analytics
+from app.analytics.repair_outcomes import build_repair_outcome_analytics
 from app.models.agent_event import AgentEvent
 from app.models.agent_run import AgentRun
 from app.models.benchmark_pack import BenchmarkPack
@@ -24,6 +25,7 @@ from app.schemas.analytics import (
     FileLocalizationAnalytics,
     ModelLeaderboardRow,
     PackAnalytics,
+    RepairOutcomeAnalytics,
     RepositoryAnalytics,
     ToolErrorsByModel,
     ToolFailureCount,
@@ -230,6 +232,9 @@ class AnalyticsService:
     def file_localization(self, filters: AnalyticsFilters) -> FileLocalizationAnalytics:
         return build_file_localization_analytics(self.db, self._load_runs(filters))
 
+    def repair_outcomes(self, filters: AnalyticsFilters) -> RepairOutcomeAnalytics:
+        return build_repair_outcome_analytics(self._load_runs(filters, include_repair_data=True))
+
     def _load_tool_call_records(self, runs: list[AgentRun]) -> list[_ToolCallRecord]:
         run_ids = [run.id for run in runs]
         events = list(
@@ -349,13 +354,27 @@ class AnalyticsService:
             runs_with_tool_errors=len({record.run_id for record in failed}),
         )
 
-    def _load_runs(self, filters: AnalyticsFilters) -> list[AgentRun]:
-        statement = select(AgentRun).options(
+    def _load_runs(
+        self,
+        filters: AnalyticsFilters,
+        *,
+        include_repair_data: bool = False,
+    ) -> list[AgentRun]:
+        options = [
             joinedload(AgentRun.benchmark_task).joinedload(BenchmarkTask.repository),
             joinedload(AgentRun.benchmark_task).joinedload(BenchmarkTask.gold_patch),
             joinedload(AgentRun.evaluation_metric),
             selectinload(AgentRun.generated_patches).selectinload(GeneratedPatch.human_review),
-        )
+        ]
+        if include_repair_data:
+            options.extend(
+                [
+                    joinedload(AgentRun.failure),
+                    selectinload(AgentRun.events),
+                    selectinload(AgentRun.test_results),
+                ]
+            )
+        statement = select(AgentRun).options(*options)
 
         if filters.repository_id is not None:
             statement = statement.where(

@@ -12,10 +12,23 @@ GET /agent-runs/{run_id}/report.json
 GET /agent-runs/{run_id}/report.md
 GET /benchmark-pack-runs/{pack_run_id}/report.json
 GET /benchmark-pack-runs/{pack_run_id}/report.md
+GET /agent-runs/{run_id}/replay-snapshot
+GET /agent-runs/{run_id}/replay-snapshot?format=md
 ```
 
-Both responses use `Content-Disposition: attachment` with a run-specific filename. A missing run
-returns `404 Agent run not found`.
+Replay snapshots complement evaluation reports. Reports summarize review evidence; replay
+snapshots preserve the sanitized prompts, configuration, allowed tools, ordered tool activity,
+model response summaries, patch versions, and persisted outcomes needed to debug how a run was
+conducted. The JSON format is the default. Use `format=md` for a readable export.
+
+Each replay snapshot includes a stable SHA-256 checksum over the sanitized content. Export time and
+the checksum field are excluded from the checksum input. Set `SOURCE_COMMIT_SHA` in deployments to
+record the application source revision alongside `app_version`; if unset, it is reported as
+unavailable.
+
+Run and pack report responses use `Content-Disposition: attachment` with a run-specific filename.
+Replay JSON is returned inline; replay Markdown uses an attachment filename. A missing run returns
+`404 Agent run not found`.
 
 Example:
 
@@ -24,6 +37,8 @@ curl -OJ http://localhost:8000/agent-runs/00000000-0000-4000-8000-000000000000/r
 curl -OJ http://localhost:8000/agent-runs/00000000-0000-4000-8000-000000000000/report.md
 curl -OJ http://localhost:8000/benchmark-pack-runs/00000000-0000-4000-8000-000000000000/report.json
 curl -OJ http://localhost:8000/benchmark-pack-runs/00000000-0000-4000-8000-000000000000/report.md
+curl http://localhost:8000/agent-runs/00000000-0000-4000-8000-000000000000/replay-snapshot
+curl -OJ "http://localhost:8000/agent-runs/00000000-0000-4000-8000-000000000000/replay-snapshot?format=md"
 ```
 
 ## Report Contents
@@ -124,6 +139,9 @@ Reports deliberately exclude trusted benchmark solution material:
   test commands, files, patches, names, and logs are never included.
 - Public snapshots contain scalar analytics, sanitized names, safe failure categories, and bounded
   run selections only. They never include raw logs, traces, failure messages, patches, or prompts.
+- Replay snapshots omit raw file contents, patch text, command streams, provider raw responses,
+  hidden-test definitions, and gold records. They retain sanitized structured tool outcomes and
+  aggregate hidden-evaluation status.
 
 Current export limits are 50,000 bytes for the embedded patch diff, 8,192 bytes per visible test
 stream, 8,192 bytes for the issue body, 200 trace events, and 2,048 bytes per pack-task failure

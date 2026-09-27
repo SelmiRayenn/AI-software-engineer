@@ -13,7 +13,7 @@ def redact_common_secrets(value: str) -> str:
         redacted,
     )
     return re.sub(
-        r"(?i)\b((?:[a-z0-9]+[_-])*(?:api[_-]?key|access[_-]?token|auth[_-]?token|password|secret))\s*[:=]\s*([^\s,;]+)",
+        r"(?i)\b((?:[a-z0-9]+[_-])*(?:api[_-]?key|access[_-]?token|auth[_-]?token|token|password|secret))\s*[:=]\s*([^\s,;]+)",
         r"\1=[REDACTED]",
         redacted,
     )

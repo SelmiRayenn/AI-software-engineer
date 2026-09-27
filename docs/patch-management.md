@@ -171,6 +171,12 @@ Soft warnings start at 75 percent of either quality limit. Whitespace-only chang
 files, and explicitly allowed dependency/lockfile changes are also warnings. Warnings remain
 auditable but do not prevent storage.
 
+For the final selected patch, the quality response also includes `code_quality_score`,
+`review_ready`, `review_blockers`, and `review_warnings` from the run evaluation. These fields are
+null or empty for a non-selected patch or a run that has not been evaluated. Hard quality and
+edited-file guardrail violations block readiness. A trusted override remains visible as a warning
+and score penalty even when it permits the patch to proceed.
+
 Benchmark curators may set `allow_lockfile_changes` or `allow_dependency_file_changes` on a task
 when those edits are essential to the historical fix. Both fields default to `false`.
 
