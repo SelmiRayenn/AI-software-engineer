@@ -8,7 +8,9 @@ from sqlalchemy.orm import Session
 from app.core.run_statuses import RUN_STATUS_COMPLETED, RUN_STATUS_FAILED
 from app.core.test_phases import (
     TEST_PHASE_BASELINE,
+    TEST_PHASE_FORMAT_CHECK,
     TEST_PHASE_HIDDEN_EVAL,
+    TEST_PHASE_LINT,
     TEST_PHASE_POST_PATCH,
 )
 from app.models import AgentEvent, AgentRun, EvaluationMetric, GeneratedPatch, GoldPatch, TestResult
@@ -50,6 +52,8 @@ class EvaluationService:
         baseline_results = self._baseline_results()
         post_patch_results = self._post_patch_results(generated_patch)
         hidden_eval_results = self._hidden_eval_results(generated_patch)
+        lint_results = self._phase_results(TEST_PHASE_LINT, generated_patch)
+        format_check_results = self._phase_results(TEST_PHASE_FORMAT_CHECK, generated_patch)
         tokens_used, estimated_cost = self._tokens_and_cost(events)
         baseline_tests_passed = _all_results_passed(baseline_results)
         post_patch_tests_passed = _all_results_passed(post_patch_results) and (
@@ -61,6 +65,16 @@ class EvaluationService:
             generated_patch,
             events,
         )
+        lint_passed = self._optional_phase_passed(
+            TEST_PHASE_LINT, lint_results, generated_patch, events
+        )
+        format_check_passed = self._optional_phase_passed(
+            TEST_PHASE_FORMAT_CHECK, format_check_results, generated_patch, events
+        )
+        quality_results = [
+            value for value in (lint_passed, format_check_passed) if value is not None
+        ]
+        code_quality_passed = all(quality_results) if quality_results else None
         hidden_tests_ran = bool(hidden_eval_results)
         issue_resolved = post_patch_tests_passed and (
             not hidden_tests_ran or hidden_tests_passed is True
@@ -78,6 +92,9 @@ class EvaluationService:
             "tests_passed": post_patch_tests_passed,
             "baseline_tests_passed": baseline_tests_passed,
             "post_patch_tests_passed": post_patch_tests_passed,
+            "lint_passed": lint_passed,
+            "format_check_passed": format_check_passed,
+            "code_quality_passed": code_quality_passed,
             "hidden_tests_passed": hidden_tests_passed,
             "hidden_tests_run_count": len(hidden_eval_results),
             "hidden_tests_failed_count": sum(
@@ -159,6 +176,34 @@ class EvaluationService:
             for event in events
         )
         return all(result.passed for result in results) and phase_completed
+
+    def _optional_phase_passed(
+        self,
+        phase: str,
+        results: list[TestResult],
+        patch: GeneratedPatch | None,
+        events: list[AgentEvent],
+    ) -> bool | None:
+        if patch is None:
+            return None
+        phase_events = [
+            event.payload_json or {}
+            for event in events
+            if event.event_type == "test_phase_completed"
+            and (event.payload_json or {}).get("phase") == phase
+            and (event.payload_json or {}).get("generated_patch_id") == str(patch.id)
+        ]
+        matching_event = next(
+            (
+                payload
+                for payload in reversed(phase_events)
+                if payload.get("result_count") == len(results)
+            ),
+            None,
+        )
+        if matching_event is None:
+            return None
+        return bool(matching_event.get("passed")) and all(result.passed for result in results)
 
     def _phase_results(self, phase: str, patch: GeneratedPatch | None) -> list[TestResult]:
         results = list(
@@ -269,6 +314,9 @@ class EvaluationService:
                     "tests_passed": metric.tests_passed,
                     "baseline_tests_passed": metric.baseline_tests_passed,
                     "post_patch_tests_passed": metric.post_patch_tests_passed,
+                    "lint_passed": metric.lint_passed,
+                    "format_check_passed": metric.format_check_passed,
+                    "code_quality_passed": metric.code_quality_passed,
                     "hidden_tests_passed": metric.hidden_tests_passed,
                     "hidden_tests_run_count": metric.hidden_tests_run_count,
                     "hidden_tests_failed_count": metric.hidden_tests_failed_count,

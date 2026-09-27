@@ -11,6 +11,18 @@ class PatchQualityRead(BaseModel):
     added_lines: int
     removed_lines: int
     total_changed_lines: int
+    changed_hunk_count: int
+    added_removed_ratio: float
+    file_kind_counts: dict[str, int]
+    duplicate_edit_count: int
+    formatting_only_hunk_count: int
+    unrelated_formatting_hunk_count: int
+    large_rewrite_hunk_count: int
+    generated_block_count: int
+    uninspected_files: list[str] = Field(default_factory=list)
+    minimization_score: float = Field(ge=0.0, le=1.0)
+    minimization_warnings: list[str] = Field(default_factory=list)
+    minimization_penalties: dict[str, float] = Field(default_factory=dict)
     changed_source_files: list[str] = Field(default_factory=list)
     changed_test_files: list[str] = Field(default_factory=list)
     changed_docs_config_files: list[str] = Field(default_factory=list)

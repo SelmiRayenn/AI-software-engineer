@@ -33,6 +33,9 @@ class PackTaskMetrics(BaseModel):
     patch_applied: bool = False
     baseline_tests_passed: bool = False
     post_patch_tests_passed: bool = False
+    lint_passed: bool | None = None
+    format_check_passed: bool | None = None
+    code_quality_passed: bool | None = None
     hidden_tests_passed: bool | None = None
     hidden_tests_run_count: int = 0
     hidden_tests_failed_count: int = 0

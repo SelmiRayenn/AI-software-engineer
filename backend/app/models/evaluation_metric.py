@@ -33,6 +33,9 @@ class EvaluationMetric(UUIDPrimaryKeyMixin, CreatedAtMixin, Base):
     post_patch_tests_passed: Mapped[bool] = mapped_column(
         Boolean, default=False, server_default=false(), nullable=False
     )
+    lint_passed: Mapped[bool | None] = mapped_column(Boolean, nullable=True)
+    format_check_passed: Mapped[bool | None] = mapped_column(Boolean, nullable=True)
+    code_quality_passed: Mapped[bool | None] = mapped_column(Boolean, nullable=True)
     hidden_tests_passed: Mapped[bool | None] = mapped_column(Boolean, nullable=True)
     hidden_tests_run_count: Mapped[int] = mapped_column(
         Integer, default=0, server_default="0", nullable=False

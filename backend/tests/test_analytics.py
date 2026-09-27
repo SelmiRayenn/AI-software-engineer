@@ -25,6 +25,7 @@ from app.models import (
     GoldPatch,
     HiddenEvalTest,
     HumanReview,
+    PatchQuality,
     Repository,
 )
 
@@ -316,6 +317,48 @@ def seed_public_demo_runs(db: Session):
             "execution_time_seconds": 10.0,
         },
     )
+    public_patch = GeneratedPatch(
+        agent_run_id=successful.id,
+        patch_text="diff --git a/app.py b/app.py\n@@ -1 +1 @@\n-old\n+new\n",
+        changed_files=["app.py"],
+        version=1,
+        is_selected=True,
+    )
+    db.add(public_patch)
+    db.flush()
+    db.add(
+        PatchQuality(
+            generated_patch_id=public_patch.id,
+            changed_file_count=1,
+            added_lines=1,
+            removed_lines=1,
+            total_changed_lines=2,
+            max_patch_files=20,
+            max_patch_changed_lines=1000,
+            changed_source_files=["app.py"],
+            changed_test_files=[],
+            changed_docs_config_files=[],
+            suspicious_generated_files=[],
+            unrelated_files=[],
+            whitespace_only=False,
+            dependency_files=[],
+            lockfiles=[],
+            warnings=[],
+            hard_limit_violations=[],
+            changed_hunk_count=1,
+            added_removed_ratio=1.0,
+            file_kind_counts={"source": 1, "test": 0, "docs": 0, "config": 0, "other": 0},
+            duplicate_edit_count=0,
+            formatting_only_hunk_count=0,
+            unrelated_formatting_hunk_count=0,
+            large_rewrite_hunk_count=0,
+            generated_block_count=0,
+            uninspected_files=[],
+            minimization_score=0.95,
+            minimization_warnings=[],
+            minimization_penalties={"uninspected_files": 0.05},
+        )
+    )
     failed = create_run(
         db,
         second_task,
@@ -437,6 +480,8 @@ def test_public_demo_snapshot_json_is_safe_and_contains_expected_sections(
     assert [run["run_id"] for run in snapshot["failed_runs"]] == [str(failed_id)]
     assert snapshot["failed_runs"][0]["failure_category"] == "setup_failed"
     assert snapshot["failed_runs"][0]["repository_url"] is None
+    assert snapshot["successful_runs"][0]["patch_minimization_score"] == 0.95
+    assert "patch_minimization_warnings" in snapshot["successful_runs"][0]
 
     serialized = json.dumps(snapshot)
     for private in (

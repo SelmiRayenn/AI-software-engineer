@@ -40,7 +40,9 @@ def client(db: Session, monkeypatch: pytest.MonkeyPatch) -> Generator[TestClient
 
 
 def create_task(db: Session, *, difficulty: str = "unknown", tags: list[str] | None = None):
-    repository = db.scalar(select(Repository).where(Repository.url == "https://github.com/example/sample"))
+    repository = db.scalar(
+        select(Repository).where(Repository.url == "https://github.com/example/sample")
+    )
     if repository is None:
         repository = Repository(
             name="sample", owner="example", url="https://github.com/example/sample"
@@ -58,7 +60,9 @@ def create_task(db: Session, *, difficulty: str = "unknown", tags: list[str] | N
     return task
 
 
-def test_update_task_metadata_normalizes_difficulty_and_tags(client: TestClient, db: Session) -> None:
+def test_update_task_metadata_normalizes_difficulty_and_tags(
+    client: TestClient, db: Session
+) -> None:
     task = create_task(db)
     response = client.patch(
         f"/benchmark-tasks/{task.id}/metadata",
@@ -71,17 +75,28 @@ def test_update_task_metadata_normalizes_difficulty_and_tags(client: TestClient,
     assert db.get(BenchmarkTask, task.id).tags == ["python", "api-fix"]
 
 
-def test_invalid_metadata_is_rejected_and_missing_task_is_clear(client: TestClient, db: Session) -> None:
+def test_invalid_metadata_is_rejected_and_missing_task_is_clear(
+    client: TestClient, db: Session
+) -> None:
     task = create_task(db)
-    assert client.patch(
-        f"/benchmark-tasks/{task.id}/metadata", json={"difficulty": "impossible"}
-    ).status_code == 422
-    assert client.patch(
-        f"/benchmark-tasks/{task.id}/metadata", json={"tags": ["not a slug"]}
-    ).status_code == 422
-    assert client.patch(
-        "/benchmark-tasks/11111111-1111-4111-8111-111111111111/metadata", json={"tags": []}
-    ).status_code == 404
+    assert (
+        client.patch(
+            f"/benchmark-tasks/{task.id}/metadata", json={"difficulty": "impossible"}
+        ).status_code
+        == 422
+    )
+    assert (
+        client.patch(
+            f"/benchmark-tasks/{task.id}/metadata", json={"tags": ["not a slug"]}
+        ).status_code
+        == 422
+    )
+    assert (
+        client.patch(
+            "/benchmark-tasks/11111111-1111-4111-8111-111111111111/metadata", json={"tags": []}
+        ).status_code
+        == 404
+    )
 
 
 def test_task_filters_and_tag_catalog(client: TestClient, db: Session) -> None:
@@ -119,7 +134,9 @@ def test_import_populates_task_and_pack_metadata(client: TestClient, db: Session
     assert response.status_code == 200, response.text
     task_id = UUID(response.json()["created_task_ids"][0])
     task = db.get(BenchmarkTask, task_id)
-    membership = db.scalar(select(BenchmarkPackTask).where(BenchmarkPackTask.benchmark_task_id == task_id))
+    membership = db.scalar(
+        select(BenchmarkPackTask).where(BenchmarkPackTask.benchmark_task_id == task_id)
+    )
     assert task.difficulty == "medium" and task.tags == ["python", "import"]
     assert membership is not None
     assert membership.difficulty == "medium" and membership.tags == ["python", "import"]

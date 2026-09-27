@@ -64,9 +64,7 @@ def get_tool_usage(filters: AnalyticsFiltersDep, db: DbSession) -> ToolUsageAnal
 
 
 @router.get("/file-localization", response_model=FileLocalizationAnalytics)
-def get_file_localization(
-    filters: AnalyticsFiltersDep, db: DbSession
-) -> FileLocalizationAnalytics:
+def get_file_localization(filters: AnalyticsFiltersDep, db: DbSession) -> FileLocalizationAnalytics:
     return AnalyticsService(db).file_localization(filters)
 
 

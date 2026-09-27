@@ -12,7 +12,9 @@ from sqlalchemy.pool import StaticPool
 
 from app.core.test_phases import (
     TEST_PHASE_BASELINE,
+    TEST_PHASE_FORMAT_CHECK,
     TEST_PHASE_HIDDEN_EVAL,
+    TEST_PHASE_LINT,
     TEST_PHASE_POST_PATCH,
 )
 from app.db.base import Base
@@ -207,6 +209,29 @@ def test_hidden_failure_blocks_issue_resolution(db: Session) -> None:
     assert metric.issue_specific_score == 0.0
 
 
+def test_code_quality_passes_when_enabled_checks_pass(db: Session) -> None:
+    run_id = create_completed_run(db, lint_passed=[True], format_check_passed=[True])
+
+    metric = EvaluationService(db=db, agent_run_id=run_id).evaluate()
+
+    assert metric.lint_passed is True
+    assert metric.format_check_passed is True
+    assert metric.code_quality_passed is True
+    assert metric.tests_passed is True
+
+
+def test_code_quality_failure_does_not_overwrite_functional_test_result(db: Session) -> None:
+    run_id = create_completed_run(db, lint_passed=[False], format_check_passed=[True])
+
+    metric = EvaluationService(db=db, agent_run_id=run_id).evaluate()
+
+    assert metric.lint_passed is False
+    assert metric.format_check_passed is True
+    assert metric.code_quality_passed is False
+    assert metric.post_patch_tests_passed is True
+    assert metric.tests_passed is True
+
+
 def test_patch_applied_requires_generated_patch_and_clean_application_event(db: Session) -> None:
     applied_run_id = create_completed_run(db, patch_applied=True)
     stored_only_run_id = create_completed_run(db, patch_applied=False)
@@ -380,6 +405,8 @@ def create_completed_run(
     baseline_passed: list[bool] | None = None,
     post_patch_passed: list[bool] | None = None,
     hidden_eval_passed: list[bool] | None = None,
+    lint_passed: list[bool] | None = None,
+    format_check_passed: list[bool] | None = None,
     model_provider: str = "mock",
     model_events: list[dict[str, object]] | None = None,
     execution_seconds: float = 8.0,
@@ -523,6 +550,39 @@ def create_completed_run(
                 stdout="",
                 stderr="",
                 duration_seconds=0.1,
+            )
+        )
+    for phase, results in (
+        (TEST_PHASE_LINT, lint_passed),
+        (TEST_PHASE_FORMAT_CHECK, format_check_passed),
+    ):
+        if results is None:
+            continue
+        for index, passed in enumerate(results):
+            db.add(
+                ResultRecord(
+                    agent_run_id=run.id,
+                    generated_patch_id=generated_patch.id,
+                    attempt_number=1,
+                    phase=phase,
+                    command=f"{phase} #{index}",
+                    passed=passed,
+                    exit_code=0 if passed else 1,
+                    stdout="",
+                    stderr="",
+                    duration_seconds=0.1,
+                )
+            )
+        db.add(
+            AgentEvent(
+                agent_run_id=run.id,
+                event_type="test_phase_completed",
+                payload_json={
+                    "phase": phase,
+                    "passed": all(results),
+                    "generated_patch_id": str(generated_patch.id),
+                    "result_count": len(results),
+                },
             )
         )
     if hidden_eval_passed:

@@ -14,10 +14,15 @@ Supported phases:
 setup
 baseline
 post_patch
+lint
+format_check
 hidden_eval
 ```
 
-`hidden_eval` is reserved for later evaluation-only checks.
+`hidden_eval` is reserved for trusted evaluation-only checks.
+
+`lint` and `format_check` are optional post-patch quality phases. Their command results do not
+replace or change baseline/post-patch functional results.
 
 ## API
 
@@ -59,6 +64,26 @@ stored.
 4. Marks the run `completed` when all post-patch tests pass, or `failed` when any fail.
 
 No-op generated patches are allowed and recorded as `patch_status: "empty"`.
+
+## Lint And Format Checks
+
+Benchmark tasks may configure `lint_commands` and `format_check_commands`. Agent run configuration
+enables their execution independently:
+
+```json
+{
+  "run_lint_after_patch": false,
+  "run_format_check_after_patch": false
+}
+```
+
+Both options default to false. For an accepted final patch, enabled checks run after visible
+post-patch tests and before hidden evaluation. Each command is stored as a normal `TestResult` with
+phase `lint` or `format_check`. A failing quality command does not change a passing functional run
+to failed; evaluation records the separate code-quality outcome.
+
+The execution service accepts only commands from the corresponding task allowlist. The frontend
+and agent cannot supply replacement lint or formatting commands.
 
 ## Targeted Test Selection
 
@@ -128,7 +153,7 @@ does not expose hidden commands, test names, file paths, assertions, stacks, or 
 
 ## Safety
 
-- Commands are read from the benchmark task, not from the frontend.
+- Setup, test, lint, and format-check commands are read from the benchmark task, not the frontend.
 - Test command execution rejects commands that are not configured on the benchmark task.
 - Commands run inside the active agent-run workspace.
 - Patch application reuses patch-management safety checks.

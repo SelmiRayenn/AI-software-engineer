@@ -32,7 +32,11 @@ def start_benchmark_pack_run(
     provider_factory: ModelProviderFactoryDep,
     operator_token: Annotated[str | None, Header(alias=TRUSTED_OPERATOR_HEADER)] = None,
 ) -> BenchmarkPackRunRead:
-    trusted_features = request.include_hidden_tests or request.targeted_tests_trusted_gold_files
+    trusted_features = (
+        request.include_hidden_tests
+        or request.targeted_tests_trusted_gold_files
+        or request.trusted_file_guardrail_override
+    )
     if trusted_features:
         verify_trusted_operator_token(operator_token)
     service = BenchmarkPackRunService(

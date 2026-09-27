@@ -9,9 +9,22 @@ from sqlalchemy import create_engine, select
 from sqlalchemy.orm import Session, sessionmaker
 from sqlalchemy.pool import StaticPool
 
-from app.core.test_phases import TEST_PHASE_BASELINE, TEST_PHASE_POST_PATCH, TEST_PHASE_SETUP
+from app.core.test_phases import (
+    TEST_PHASE_BASELINE,
+    TEST_PHASE_FORMAT_CHECK,
+    TEST_PHASE_LINT,
+    TEST_PHASE_POST_PATCH,
+    TEST_PHASE_SETUP,
+)
 from app.db.base import Base
-from app.models import AgentRun, AgentRunFailure, BenchmarkTask, GeneratedPatch, Repository
+from app.models import (
+    AgentEvent,
+    AgentRun,
+    AgentRunFailure,
+    BenchmarkTask,
+    GeneratedPatch,
+    Repository,
+)
 from app.models import TestResult as ResultRecord
 from app.test_execution import TestExecutionSafetyError as ExecutionSafetyError
 from app.test_execution import TestExecutionService as ExecutionService
@@ -158,6 +171,43 @@ def test_disallowed_command_is_rejected(db: Session, workspace: Path) -> None:
         )
 
 
+def test_lint_phase_is_stored_without_changing_functional_status(
+    db: Session, workspace: Path
+) -> None:
+    command = python_command("print('lint ok')")
+    run_id = create_agent_run(db, workspace, lint_commands=[command])
+
+    result = ExecutionService(db=db, agent_run_id=run_id).run_lint_checks()
+
+    assert result.passed is True
+    assert result.test_results[0].phase == TEST_PHASE_LINT
+    assert result.test_results[0].stdout.strip() == "lint ok"
+    assert db.get(AgentRun, run_id).status == "running"
+
+
+def test_format_check_failure_is_stored_without_failing_run(db: Session, workspace: Path) -> None:
+    command = python_command("import sys; print('needs formatting'); sys.exit(1)")
+    run_id = create_agent_run(db, workspace, format_check_commands=[command])
+
+    result = ExecutionService(db=db, agent_run_id=run_id).run_format_checks()
+
+    assert result.passed is False
+    assert result.test_results[0].phase == TEST_PHASE_FORMAT_CHECK
+    assert result.test_results[0].exit_code == 1
+    assert db.get(AgentRun, run_id).status == "running"
+
+
+def test_disallowed_lint_command_is_rejected(db: Session, workspace: Path) -> None:
+    allowed_command = python_command("print('configured lint')")
+    run_id = create_agent_run(db, workspace, lint_commands=[allowed_command])
+
+    with pytest.raises(ExecutionSafetyError):
+        ExecutionService(db=db, agent_run_id=run_id).run_test_command(
+            phase=TEST_PHASE_LINT,
+            command="ruff check .",
+        )
+
+
 def test_setup_failure_marks_run_failed(db: Session, workspace: Path) -> None:
     setup_command = python_command("import sys; sys.stderr.write('setup failed'); sys.exit(2)")
     run_id = create_agent_run(db, workspace, setup_commands=[setup_command])
@@ -210,6 +260,8 @@ def create_agent_run(
     *,
     setup_commands: list[str] | None = None,
     test_commands: list[str] | None = None,
+    lint_commands: list[str] | None = None,
+    format_check_commands: list[str] | None = None,
     status: str = "queued",
 ) -> UUID:
     repository = Repository(
@@ -232,6 +284,8 @@ def create_agent_run(
         base_commit="1111111111111111111111111111111111111111",
         setup_commands=setup_commands or [],
         test_commands=test_commands or [python_command("print('ok')")],
+        lint_commands=lint_commands or [],
+        format_check_commands=format_check_commands or [],
         status="ready",
     )
     db.add(task)
@@ -246,6 +300,23 @@ def create_agent_run(
         workspace_path=str(workspace),
     )
     db.add(run)
+    db.flush()
+    db.add(
+        AgentEvent(
+            agent_run_id=run.id,
+            event_type="candidate_files_submitted",
+            payload_json={
+                "ranked_files": [
+                    {
+                        "path": "src/calculator.py",
+                        "reason": "Test execution fixture candidate",
+                        "confidence": "high",
+                    }
+                ],
+                "revision": 1,
+            },
+        )
+    )
     db.commit()
     return run.id
 

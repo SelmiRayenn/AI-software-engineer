@@ -20,6 +20,8 @@ class BenchmarkTaskBase(BaseModel):
     linked_pr_url: str | None = None
     setup_commands: list[str] = Field(default_factory=list)
     test_commands: list[str] = Field(default_factory=list)
+    lint_commands: list[str] = Field(default_factory=list)
+    format_check_commands: list[str] = Field(default_factory=list)
     notes: str | None = None
     difficulty: TaskDifficulty = "unknown"
     tags: list[str] = Field(default_factory=list, max_length=25)
@@ -65,12 +67,14 @@ class BenchmarkTaskFromGitHubRequest(BaseModel):
     fix_commit: str | None = Field(default=None, min_length=7, max_length=64)
     setup_commands: list[str] = Field(default_factory=list, max_length=50)
     test_commands: list[str] = Field(min_length=1, max_length=50)
+    lint_commands: list[str] = Field(default_factory=list, max_length=50)
+    format_check_commands: list[str] = Field(default_factory=list, max_length=50)
     notes: str | None = None
     allow_lockfile_changes: bool = False
     allow_dependency_file_changes: bool = False
     create_hidden_tests_from_pr_tests: bool = False
 
-    @field_validator("setup_commands", "test_commands")
+    @field_validator("setup_commands", "test_commands", "lint_commands", "format_check_commands")
     @classmethod
     def validate_commands(cls, commands: list[str]) -> list[str]:
         for command in commands:

@@ -61,6 +61,9 @@ def test_sqlalchemy_metadata_can_be_loaded() -> None:
     assert "allow_lockfile_changes" in Base.metadata.tables["benchmark_tasks"].columns
     assert "allow_dependency_file_changes" in Base.metadata.tables["benchmark_tasks"].columns
     assert {"difficulty", "tags"}.issubset(Base.metadata.tables["benchmark_tasks"].columns.keys())
+    assert {"lint_commands", "format_check_commands"}.issubset(
+        Base.metadata.tables["benchmark_tasks"].columns.keys()
+    )
     assert {
         "repetitions_requested",
         "inconsistent_results",
@@ -76,7 +79,17 @@ def test_sqlalchemy_metadata_can_be_loaded() -> None:
         "issue_resolved",
         "regression_detected",
         "issue_specific_score",
+        "lint_passed",
+        "format_check_passed",
+        "code_quality_passed",
     }.issubset(Base.metadata.tables["evaluation_metrics"].columns.keys())
+    assert {
+        "changed_hunk_count",
+        "file_kind_counts",
+        "minimization_score",
+        "minimization_warnings",
+        "uninspected_files",
+    }.issubset(Base.metadata.tables["patch_qualities"].columns.keys())
 
 
 def test_pack_run_migration_preserves_existing_packs_and_roundtrips(tmp_path: Path) -> None:
@@ -152,6 +165,52 @@ def test_flakiness_migration_upgrades_and_downgrades_task_metadata(tmp_path: Pat
     command.downgrade(config, "20260920_0012")
     assert "flakiness_checks" not in inspect(engine).get_table_names()
     assert "difficulty" in _column_names(inspect(engine), "benchmark_tasks")
+    engine.dispose()
+
+
+def test_patch_minimization_migration_roundtrips_quality_columns(tmp_path: Path) -> None:
+    database_url = f"sqlite:///{(tmp_path / 'patch-minimization.db').as_posix()}"
+    config = make_alembic_config(database_url)
+    command.upgrade(config, "20260920_0013")
+    engine = create_engine(database_url)
+
+    command.upgrade(config, "head")
+    columns = _column_names(inspect(engine), "patch_qualities")
+    assert {
+        "changed_hunk_count",
+        "added_removed_ratio",
+        "file_kind_counts",
+        "duplicate_edit_count",
+        "formatting_only_hunk_count",
+        "large_rewrite_hunk_count",
+        "generated_block_count",
+        "uninspected_files",
+        "minimization_score",
+        "minimization_warnings",
+        "minimization_penalties",
+    }.issubset(columns)
+    command.downgrade(config, "20260920_0013")
+    assert "minimization_score" not in _column_names(inspect(engine), "patch_qualities")
+    engine.dispose()
+
+
+def test_lint_format_migration_roundtrips_quality_columns(tmp_path: Path) -> None:
+    database_url = f"sqlite:///{(tmp_path / 'lint-format.db').as_posix()}"
+    config = make_alembic_config(database_url)
+    command.upgrade(config, "20260926_0014")
+    engine = create_engine(database_url)
+
+    command.upgrade(config, "head")
+    assert {"lint_commands", "format_check_commands"}.issubset(
+        _column_names(inspect(engine), "benchmark_tasks")
+    )
+    assert {"lint_passed", "format_check_passed", "code_quality_passed"}.issubset(
+        _column_names(inspect(engine), "evaluation_metrics")
+    )
+
+    command.downgrade(config, "20260926_0014")
+    assert "lint_commands" not in _column_names(inspect(engine), "benchmark_tasks")
+    assert "lint_passed" not in _column_names(inspect(engine), "evaluation_metrics")
     engine.dispose()
 
 

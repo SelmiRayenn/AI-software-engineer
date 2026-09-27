@@ -243,6 +243,23 @@ def create_agent_run(db: Session) -> UUID:
         status="running",
     )
     db.add(run)
+    db.flush()
+    db.add(
+        AgentEvent(
+            agent_run_id=run.id,
+            event_type="candidate_files_submitted",
+            payload_json={
+                "ranked_files": [
+                    {
+                        "path": "src/calculator.py",
+                        "reason": "Controlled tool fixture candidate",
+                        "confidence": "high",
+                    }
+                ],
+                "revision": 1,
+            },
+        )
+    )
     db.commit()
     return run.id
 

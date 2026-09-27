@@ -179,9 +179,7 @@ def test_runner_repeats_tests_and_stops_after_first_failure(
     container = SequencedContainer([0, 1, 0])
     fake_client = FakeDockerClient(container)
     runner = DockerSandboxRunner(
-        workspace_manager=SandboxWorkspaceManager(
-            workspace_root=tmp_path, retain_workspaces=False
-        )
+        workspace_manager=SandboxWorkspaceManager(workspace_root=tmp_path, retain_workspaces=False)
     )
     monkeypatch.setattr(runner, "_run_host_command", successful_host_command)
     monkeypatch.setattr(runner, "_repo_archive", lambda repo_path: b"archive")

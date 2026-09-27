@@ -61,6 +61,13 @@ class Settings(BaseSettings):
     block_dependency_file_changes_by_default: bool = Field(
         default=True, alias="BLOCK_DEPENDENCY_FILE_CHANGES_BY_DEFAULT"
     )
+    require_edited_files_in_candidates: bool = Field(
+        default=True, alias="REQUIRE_EDITED_FILES_IN_CANDIDATES"
+    )
+    require_edited_files_in_plan: bool = Field(default=False, alias="REQUIRE_EDITED_FILES_IN_PLAN")
+    allow_test_file_edits: bool = Field(default=True, alias="ALLOW_TEST_FILE_EDITS")
+    allow_doc_file_edits: bool = Field(default=False, alias="ALLOW_DOC_FILE_EDITS")
+    allow_config_file_edits: bool = Field(default=False, alias="ALLOW_CONFIG_FILE_EDITS")
     trusted_operator_token: str | None = Field(default=None, alias="TRUSTED_OPERATOR_TOKEN")
     public_demo_redact_repository_urls: bool = Field(
         default=True,

@@ -155,6 +155,10 @@ class AgentRunOrchestrator:
             raise AgentRunStartError(
                 "Gold-file targeted test selection requires trusted operator access."
             )
+        if request.trusted_file_guardrail_override and not trusted_operator:
+            raise AgentRunStartError(
+                "Patch file guardrail override requires trusted operator access."
+            )
 
         repository = task.repository
         if repository is None:
@@ -260,6 +264,7 @@ class AgentRunOrchestrator:
                     workspace_path=workspace.path,
                     allowed_test_commands=task.test_commands,
                     command_timeout_seconds=request.command_timeout_seconds,
+                    trusted_file_guardrail_override=(run_config.trusted_file_guardrail_override),
                 )
                 test_executor = TestExecutionService(
                     db=self._db,
@@ -279,7 +284,12 @@ class AgentRunOrchestrator:
                     config=run_config,
                     tests=test_executor,
                     patches=PatchService(
-                        db=self._db, agent_run_id=run.id, workspace_path=workspace.path
+                        db=self._db,
+                        agent_run_id=run.id,
+                        workspace_path=workspace.path,
+                        trusted_file_guardrail_override=(
+                            run_config.trusted_file_guardrail_override
+                        ),
                     ),
                 )
                 loop = AgentLoop(
@@ -312,6 +322,17 @@ class AgentRunOrchestrator:
                 if outcome.patch:
                     generated_patch_id = outcome.patch.id
                     changed_files = outcome.patch.changed_files
+                if outcome.accepted and outcome.patch and outcome.valid:
+                    if run_config.run_lint_after_patch:
+                        test_executor.run_lint_checks(
+                            generated_patch_id=outcome.patch.id,
+                            attempt_number=repairs.attempt_number,
+                        )
+                    if run_config.run_format_check_after_patch:
+                        test_executor.run_format_checks(
+                            generated_patch_id=outcome.patch.id,
+                            attempt_number=repairs.attempt_number,
+                        )
                 if run_config.run_hidden_tests and outcome.patch and outcome.valid:
                     test_executor.run_hidden_evaluation(
                         generated_patch_id=outcome.patch.id, run_hidden_tests=True

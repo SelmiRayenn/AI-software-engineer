@@ -163,12 +163,13 @@ class BenchmarkPackRunReportService:
             lines.extend(
                 [
                     (
-                        "| # | Task | Repository | Status | Resolved | Visible | Hidden | "
-                        "Localization | Issue score | Tokens | Cost | Time | Failure |"
+                        "| # | Task | Repository | Status | Resolved | Visible | Hidden | Lint | "
+                        "Format | Code quality | Localization | Issue score | Tokens | Cost | Time | "
+                        "Failure |"
                     ),
                     (
-                        "| ---: | --- | --- | --- | --- | --- | --- | ---: | ---: | "
-                        "---: | ---: | ---: | --- |"
+                        "| ---: | --- | --- | --- | --- | --- | --- | --- | --- | --- | ---: | "
+                        "---: | ---: | ---: | ---: | --- |"
                     ),
                 ]
             )
@@ -331,6 +332,9 @@ def _task_table_row(task: PackReportTask) -> str:
         f"| {task.order_index} | {_md_cell(issue)} | {_md_cell(repository)} | "
         f"{_md_cell(task.status)} | {_metric_bool(metrics, 'issue_resolved')} | "
         f"{_metric_bool(metrics, 'post_patch_tests_passed')} | {_hidden_status(metrics)} | "
+        f"{_metric_optional_bool(metrics, 'lint_passed')} | "
+        f"{_metric_optional_bool(metrics, 'format_check_passed')} | "
+        f"{_metric_optional_bool(metrics, 'code_quality_passed')} | "
         f"{_metric_float(metrics, 'file_localization_score')} | "
         f"{_metric_float(metrics, 'issue_specific_score')} | "
         f"{_metric_number(metrics, 'tokens_used', integer=True)} | "
@@ -344,6 +348,13 @@ def _metric_bool(metrics: PackTaskMetrics | None, field: str) -> str:
     if metrics is None:
         return "N/A"
     return _yes_no(bool(getattr(metrics, field)))
+
+
+def _metric_optional_bool(metrics: PackTaskMetrics | None, field: str) -> str:
+    if metrics is None:
+        return "N/A"
+    value = getattr(metrics, field)
+    return "Not run" if value is None else _yes_no(value)
 
 
 def _metric_float(metrics: PackTaskMetrics | None, field: str) -> str:

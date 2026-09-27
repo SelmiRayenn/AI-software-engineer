@@ -301,7 +301,9 @@ def test_trace_normalizes_nested_requested_tool_call(client: TestClient) -> None
         run_id = run.id
 
     payload = client.get(f"/agent-runs/{run_id}/trace").json()
-    requested = next(event for event in payload["events"] if event["event_type"] == "tool_call_requested")
+    requested = next(
+        event for event in payload["events"] if event["event_type"] == "tool_call_requested"
+    )
 
     assert requested["tool_name"] == "read_file"
     assert requested["summary"] == "Tool requested: read_file"

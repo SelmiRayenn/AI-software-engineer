@@ -47,6 +47,9 @@ class TraceMetricSummary(BaseModel):
     patch_applied: bool
     baseline_tests_passed: bool
     post_patch_tests_passed: bool
+    lint_passed: bool | None = None
+    format_check_passed: bool | None = None
+    code_quality_passed: bool | None = None
     hidden_tests_passed: bool | None
     hidden_tests_run_count: int
     issue_resolved: bool

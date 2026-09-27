@@ -236,6 +236,26 @@ def create_report_run(db: Session, *, decision: str = "approved") -> AgentRun:
                 stdout="HIDDEN_RESULT_OUTPUT_MUST_NOT_APPEAR",
                 duration_seconds=3.0,
             ),
+            StoredTestResult(
+                agent_run_id=run.id,
+                generated_patch_id=patch.id,
+                phase="lint",
+                command="ruff check .",
+                passed=False,
+                exit_code=1,
+                stderr="lint failed",
+                duration_seconds=0.5,
+            ),
+            StoredTestResult(
+                agent_run_id=run.id,
+                generated_patch_id=patch.id,
+                phase="format_check",
+                command="ruff format --check .",
+                passed=True,
+                exit_code=0,
+                stdout="already formatted",
+                duration_seconds=0.4,
+            ),
             EvaluationMetric(
                 agent_run_id=run.id,
                 file_localization_score=1.0,
@@ -243,6 +263,9 @@ def create_report_run(db: Session, *, decision: str = "approved") -> AgentRun:
                 tests_passed=False,
                 baseline_tests_passed=True,
                 post_patch_tests_passed=False,
+                lint_passed=False,
+                format_check_passed=True,
+                code_quality_passed=False,
                 hidden_tests_passed=False,
                 hidden_tests_run_count=1,
                 hidden_tests_failed_count=1,
@@ -283,7 +306,14 @@ def test_json_report_contains_safe_complete_run_summary(client: TestClient) -> N
     assert payload["files_inspected"] == ["src/report.py"]
     assert payload["files_modified"] == ["src/report.py"]
     assert payload["patch_quality"]["changed_file_count"] == 1
+    assert 0.0 <= payload["patch_quality"]["minimization_score"] <= 1.0
+    assert payload["patch_quality"]["changed_hunk_count"] == 0
+    assert "broad_patch" in payload["patch_quality"]["minimization_warnings"]
+    assert "changed_lines" in payload["patch_quality"]["minimization_penalties"]
     assert payload["evaluation_metrics"]["regression_detected"] is True
+    assert payload["evaluation_metrics"]["lint_passed"] is False
+    assert payload["evaluation_metrics"]["format_check_passed"] is True
+    assert payload["evaluation_metrics"]["code_quality_passed"] is False
     assert payload["failure"]["category"] == "post_patch_tests_failed"
     assert payload["human_review"]["status"] == "approved"
     assert payload["usage"] == {
@@ -296,6 +326,8 @@ def test_json_report_contains_safe_complete_run_summary(client: TestClient) -> N
     assert phases["post_patch"]["results"][0]["stdout"]["truncated"] is True
     assert phases["hidden_eval"]["details_included"] is False
     assert phases["hidden_eval"]["results"] == []
+    assert phases["lint"]["failed_count"] == 1
+    assert phases["format_check"]["passed_count"] == 1
     assert payload["hidden_evaluation"] == {
         "available": True,
         "passed": False,
@@ -343,6 +375,7 @@ def test_markdown_report_has_expected_sections_and_truncation_notes(
         "## Patch Quality",
         "## Test Results",
         "## Hidden Evaluation Summary",
+        "## Code Quality Summary",
         "## Evaluation Metrics",
         "## Failure Classification",
         "## Human Review",
@@ -352,6 +385,11 @@ def test_markdown_report_has_expected_sections_and_truncation_notes(
     assert "stdout truncated" in response.text
     assert "Patch diff truncated" in response.text
     assert "Command and log details withheld for hidden evaluation" in response.text
+    assert "Minimization score:" in response.text
+    assert "Minimality warnings: broad_patch" in response.text
+    assert "### Lint" in response.text
+    assert "### Format Check" in response.text
+    assert "Overall code quality: no" in response.text
     assert "GOLD_PATCH_MUST_NOT_APPEAR" not in response.text
     assert "HIDDEN_RESULT_COMMAND_MUST_NOT_APPEAR" not in response.text
     assert "secret-token-value" not in response.text

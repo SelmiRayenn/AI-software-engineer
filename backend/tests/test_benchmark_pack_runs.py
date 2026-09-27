@@ -647,6 +647,7 @@ def test_pack_run_markdown_report_has_summary_and_per_task_table(client, pack):
         "## Known Limitations",
     ):
         assert heading in response.text
+    assert "| Lint | Format | Code quality |" in response.text
     assert "| Issue resolved rate | 100.00% |" in response.text
     assert "Addition issue 10" in response.text
     assert "Addition issue 20" in response.text

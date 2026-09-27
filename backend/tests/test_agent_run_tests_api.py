@@ -13,7 +13,7 @@ from sqlalchemy.pool import StaticPool
 from app.db.base import Base
 from app.db.session import get_db
 from app.main import app
-from app.models import AgentRun, BenchmarkTask, GeneratedPatch, Repository
+from app.models import AgentEvent, AgentRun, BenchmarkTask, GeneratedPatch, Repository
 
 engine = create_engine(
     "sqlite+pysqlite:///:memory:",
@@ -153,6 +153,23 @@ def create_agent_run(
             workspace_path=str(workspace),
         )
         db.add(run)
+        db.flush()
+        db.add(
+            AgentEvent(
+                agent_run_id=run.id,
+                event_type="candidate_files_submitted",
+                payload_json={
+                    "ranked_files": [
+                        {
+                            "path": "src/calculator.py",
+                            "reason": "Post-patch API fixture candidate",
+                            "confidence": "high",
+                        }
+                    ],
+                    "revision": 1,
+                },
+            )
+        )
         db.commit()
         return run.id
 

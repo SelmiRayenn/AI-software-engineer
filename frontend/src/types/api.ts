@@ -76,6 +76,9 @@ export interface AgentRunMetricSummary {
   tests_passed: boolean;
   baseline_tests_passed: boolean;
   post_patch_tests_passed: boolean;
+  lint_passed: boolean | null;
+  format_check_passed: boolean | null;
+  code_quality_passed: boolean | null;
   hidden_tests_passed: boolean | null;
   hidden_tests_run_count: number;
   hidden_tests_failed_count: number;
@@ -129,6 +132,8 @@ export interface AgentRunConfig {
   enable_test_tool: boolean;
   run_mode: "scripted" | "tool_loop";
   run_hidden_tests: boolean;
+  run_lint_after_patch: boolean;
+  run_format_check_after_patch: boolean;
 }
 
 export interface AgentPromptPreview {
@@ -177,6 +182,9 @@ export interface EvaluationMetric {
   tests_passed: boolean;
   baseline_tests_passed: boolean;
   post_patch_tests_passed: boolean;
+  lint_passed: boolean | null;
+  format_check_passed: boolean | null;
+  code_quality_passed: boolean | null;
   hidden_tests_passed: boolean | null;
   hidden_tests_run_count: number;
   hidden_tests_failed_count: number;
@@ -233,6 +241,9 @@ export interface TraceMetricSummary {
   patch_applied: boolean;
   baseline_tests_passed: boolean;
   post_patch_tests_passed: boolean;
+  lint_passed: boolean | null;
+  format_check_passed: boolean | null;
+  code_quality_passed: boolean | null;
   hidden_tests_passed: boolean | null;
   hidden_tests_run_count: number;
   issue_resolved: boolean;

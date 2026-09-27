@@ -20,7 +20,9 @@ from app.core.run_statuses import (
 )
 from app.core.test_phases import (
     TEST_PHASE_BASELINE,
+    TEST_PHASE_FORMAT_CHECK,
     TEST_PHASE_HIDDEN_EVAL,
+    TEST_PHASE_LINT,
     TEST_PHASE_POST_PATCH,
     TEST_PHASE_SETUP,
 )
@@ -356,11 +358,81 @@ class TestExecutionService:
             error_message=None if passed else "Hidden evaluation command failed.",
         )
 
+    def run_lint_checks(
+        self,
+        *,
+        generated_patch_id: UUID | None = None,
+        attempt_number: int | None = None,
+    ) -> TestExecutionPhaseResult:
+        return self._run_quality_checks(
+            phase=TEST_PHASE_LINT,
+            commands=self._agent_run.benchmark_task.lint_commands,
+            generated_patch_id=generated_patch_id,
+            attempt_number=attempt_number,
+        )
+
+    def run_format_checks(
+        self,
+        *,
+        generated_patch_id: UUID | None = None,
+        attempt_number: int | None = None,
+    ) -> TestExecutionPhaseResult:
+        return self._run_quality_checks(
+            phase=TEST_PHASE_FORMAT_CHECK,
+            commands=self._agent_run.benchmark_task.format_check_commands,
+            generated_patch_id=generated_patch_id,
+            attempt_number=attempt_number,
+        )
+
+    def _run_quality_checks(
+        self,
+        *,
+        phase: str,
+        commands: list[str],
+        generated_patch_id: UUID | None,
+        attempt_number: int | None,
+    ) -> TestExecutionPhaseResult:
+        self._ensure_execution_allowed()
+        self._mark_running_if_needed()
+        patch = self._db.get(GeneratedPatch, generated_patch_id) if generated_patch_id else None
+        if generated_patch_id and (patch is None or patch.agent_run_id != self._agent_run_id):
+            raise TestExecutionSafetyError("Generated patch does not belong to this run.")
+        results = self._run_configured_commands(
+            phase=phase,
+            commands=commands,
+            allowed_commands=commands,
+            generated_patch_id=generated_patch_id,
+            attempt_number=attempt_number,
+        )
+        passed = _all_passed(results)
+        self._analyze_failures(results)
+        self._log_phase_completed(
+            phase=phase,
+            passed=passed,
+            result_count=len(results),
+            patch_status=None,
+            generated_patch_id=generated_patch_id,
+            attempt_number=attempt_number,
+        )
+        return TestExecutionPhaseResult(
+            agent_run_id=self._agent_run_id,
+            phase=phase,
+            passed=passed,
+            test_results=results,
+            error_message=None if passed else f"{phase.replace('_', ' ').title()} command failed.",
+        )
+
     def run_test_command(self, *, phase: str, command: str) -> TestResult:
         self._ensure_execution_allowed()
-        if phase not in {TEST_PHASE_BASELINE, TEST_PHASE_POST_PATCH}:
+        allowed_by_phase = {
+            TEST_PHASE_BASELINE: self._agent_run.benchmark_task.test_commands,
+            TEST_PHASE_POST_PATCH: self._agent_run.benchmark_task.test_commands,
+            TEST_PHASE_LINT: self._agent_run.benchmark_task.lint_commands,
+            TEST_PHASE_FORMAT_CHECK: self._agent_run.benchmark_task.format_check_commands,
+        }
+        if phase not in allowed_by_phase:
             raise TestExecutionSafetyError("Only test phases can execute test commands.")
-        self._ensure_command_allowed(command, self._agent_run.benchmark_task.test_commands)
+        self._ensure_command_allowed(command, allowed_by_phase[phase])
         self._mark_running_if_needed()
         result = self._run_command(phase=phase, command=command)
         self._analyze_failures([result])

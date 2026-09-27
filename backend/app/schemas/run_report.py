@@ -73,6 +73,18 @@ class ReportPatchQuality(BaseModel):
     added_lines: int
     removed_lines: int
     total_changed_lines: int
+    changed_hunk_count: int
+    added_removed_ratio: float
+    file_kind_counts: dict[str, int]
+    duplicate_edit_count: int
+    formatting_only_hunk_count: int
+    unrelated_formatting_hunk_count: int
+    large_rewrite_hunk_count: int
+    generated_block_count: int
+    uninspected_files: list[str]
+    minimization_score: float
+    minimization_warnings: list[str]
+    minimization_penalties: dict[str, float]
     changed_source_files: list[str]
     changed_test_files: list[str]
     changed_docs_config_files: list[str]
@@ -117,6 +129,9 @@ class ReportEvaluationMetrics(BaseModel):
     tests_passed: bool
     baseline_tests_passed: bool
     post_patch_tests_passed: bool
+    lint_passed: bool | None = None
+    format_check_passed: bool | None = None
+    code_quality_passed: bool | None = None
     hidden_tests_passed: bool | None = None
     hidden_tests_run_count: int
     hidden_tests_failed_count: int

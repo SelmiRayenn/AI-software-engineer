@@ -105,6 +105,7 @@ class AgentWorkspaceTools:
         max_list_files: int = 2_000,
         command_timeout_seconds: int = 120,
         max_log_bytes: int = 200_000,
+        trusted_file_guardrail_override: bool = False,
     ) -> None:
         self._db = db
         self._agent_run_id = agent_run_id
@@ -123,6 +124,7 @@ class AgentWorkspaceTools:
         self._max_list_files = max_list_files
         self._command_timeout_seconds = command_timeout_seconds
         self._max_log_bytes = max_log_bytes
+        self._trusted_file_guardrail_override = trusted_file_guardrail_override
 
     def retrieve_relevant_files(
         self,
@@ -517,6 +519,7 @@ class AgentWorkspaceTools:
             db=self._db,
             agent_run_id=self._agent_run_id,
             workspace_path=self._workspace_path,
+            trusted_file_guardrail_override=self._trusted_file_guardrail_override,
         )
 
     def _run_git(self, args: list[str]) -> subprocess.CompletedProcess[str]:

@@ -51,7 +51,9 @@ class ObservingMock(MockModelProvider):
 
 
 @pytest.fixture()
-def harness(tmp_path: Path):
+def harness(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+    # These legacy repair-budget scenarios intentionally disable candidate gating.
+    monkeypatch.setattr(settings, "require_edited_files_in_candidates", False)
     workspace = tmp_path / "workspace"
     workspace.mkdir()
     (workspace / "calculator.py").write_text(BAD, encoding="utf-8")
@@ -700,6 +702,23 @@ def test_metrics_exclude_abandoned_files_and_diagnostic_test_failures(harness):
     result = h.start(
         [
             call("run_tests", command=h.task.test_commands[0]),
+            call("read_file", file_path="calculator.py"),
+            call("read_file", file_path="notes.txt"),
+            call(
+                "submit_candidate_files",
+                ranked_files=[
+                    {
+                        "path": "calculator.py",
+                        "reason": "Primary implementation",
+                        "confidence": "high",
+                    },
+                    {
+                        "path": "notes.txt",
+                        "reason": "Diagnostic unrelated-file fixture",
+                        "confidence": "low",
+                    },
+                ],
+            ),
             call("write_file", file_path="notes.txt", content="unrelated edit\n"),
             *candidate(WRONG),
             call("write_file", file_path="notes.txt", content="baseline\n"),

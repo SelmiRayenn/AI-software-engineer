@@ -49,6 +49,8 @@ class PublicDemoRun(BaseModel):
     estimated_cost: float = 0.0
     execution_time_seconds: float = 0.0
     failure_category: str | None = None
+    patch_minimization_score: float | None = None
+    patch_minimization_warnings: list[str] = Field(default_factory=list)
     started_at: datetime
     completed_at: datetime | None = None
 

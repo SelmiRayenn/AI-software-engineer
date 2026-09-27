@@ -167,6 +167,20 @@ analytics; a repair cannot improve its historical score. Evidence, duplicate, si
 remain enforced in every revision. Set `require_candidate_files_before_edit=false` only for legacy
 deterministic flows.
 
+The patch boundary independently rechecks justification. With
+`REQUIRE_EDITED_FILES_IN_CANDIDATES=true` (the default), each edited source file must appear in the
+latest candidate ranking even if a caller bypasses the interactive `write_file` gate. Operators
+may also enable `REQUIRE_EDITED_FILES_IN_PLAN` to require every edited path in the accepted plan's
+`files_likely_to_modify` list. Tests are allowed by default; docs and configuration files require
+category configuration or explicit candidate/plan justification. Hidden/gold and generated files
+remain unconditionally blocked. This second check prevents direct patch submission or API
+application from bypassing the reasoning workflow.
+
+Special trusted runs may request `trusted_file_guardrail_override=true` through the trusted start
+endpoint. Each actual bypass is recorded as `patch_file_guardrail_override`; the flag is rejected
+on public starts and does not weaken workspace, hidden-data, generated-file, dependency, or patch
+size protections.
+
 ## Root-Cause Hypotheses
 
 `require_hypothesis_before_patch` defaults to true. Before `submit_patch`, the run must contain an
@@ -350,6 +364,7 @@ The loop records:
 - `repair_attempt_completed` (candidate ID/version, outcome, and test-result IDs)
 - `repair_limit_reached`
 - `final_patch_selected`
+- `patch_file_guardrail_override` (trusted operator use only)
 
 The existing `model_response` event is also retained for metrics compatibility, and controlled
 tools continue to emit `agent_tool_call`. The normalized run config and redacted prompt preview are

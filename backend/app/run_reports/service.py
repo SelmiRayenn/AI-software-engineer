@@ -15,6 +15,7 @@ from app.agents.prompts import redact_prompt_text
 from app.core.test_phases import TEST_PHASE_HIDDEN_EVAL
 from app.evaluation.service import model_usage_totals
 from app.models import AgentEvent, AgentRun, TestResult
+from app.patch_quality import PatchQualityService
 from app.run_traces import AgentRunTraceService
 from app.schemas.agent_run import AgentRunConfig
 from app.schemas.run_report import (
@@ -72,6 +73,8 @@ class AgentRunReportService:
             return None
 
         patch = run.generated_patch
+        if patch is not None:
+            PatchQualityService(self.db).get_or_create(patch.id)
         metric = run.evaluation_metric
         events = sorted(run.events, key=lambda event: (event.created_at, event.id))
         test_results = sorted(
@@ -247,6 +250,23 @@ class AgentRunReportService:
                     f"- Added lines: {quality.added_lines}",
                     f"- Removed lines: {quality.removed_lines}",
                     f"- Total changed lines: {quality.total_changed_lines}",
+                    f"- Changed hunks: {quality.changed_hunk_count}",
+                    f"- Added/removed ratio: {quality.added_removed_ratio:.4f}",
+                    f"- Minimization score: {quality.minimization_score:.4f}",
+                    (
+                        "- File split: "
+                        + ", ".join(
+                            f"{kind}={count}" for kind, count in quality.file_kind_counts.items()
+                        )
+                    ),
+                    (
+                        "- Minimality warnings: "
+                        f"{'; '.join(quality.minimization_warnings) or 'None'}"
+                    ),
+                    (
+                        "- Uninspected modified files: "
+                        f"{', '.join(quality.uninspected_files) or 'None'}"
+                    ),
                     f"- Whitespace only: {'yes' if quality.whitespace_only else 'no'}",
                     f"- Warnings: {'; '.join(quality.warnings) or 'None'}",
                     (
@@ -284,6 +304,24 @@ class AgentRunReportService:
                 )
                 _append_log(lines, "stdout", result.stdout)
                 _append_log(lines, "stderr", result.stderr)
+
+        lines.extend(["", "## Code Quality Summary", ""])
+        if report.evaluation_metrics is None:
+            lines.append("Lint and format-check metrics are not available.")
+        else:
+            lines.extend(
+                [
+                    f"- Lint: {_optional_bool(report.evaluation_metrics.lint_passed)}",
+                    (
+                        "- Format check: "
+                        f"{_optional_bool(report.evaluation_metrics.format_check_passed)}"
+                    ),
+                    (
+                        "- Overall code quality: "
+                        f"{_optional_bool(report.evaluation_metrics.code_quality_passed)}"
+                    ),
+                ]
+            )
 
         lines.extend(["", "## Hidden Evaluation Summary", ""])
         hidden = report.hidden_evaluation
@@ -436,6 +474,21 @@ def _patch_quality(patch: Any) -> ReportPatchQuality | None:
         added_lines=quality.added_lines,
         removed_lines=quality.removed_lines,
         total_changed_lines=quality.total_changed_lines,
+        changed_hunk_count=quality.changed_hunk_count,
+        added_removed_ratio=quality.added_removed_ratio,
+        file_kind_counts=dict(quality.file_kind_counts),
+        duplicate_edit_count=quality.duplicate_edit_count,
+        formatting_only_hunk_count=quality.formatting_only_hunk_count,
+        unrelated_formatting_hunk_count=quality.unrelated_formatting_hunk_count,
+        large_rewrite_hunk_count=quality.large_rewrite_hunk_count,
+        generated_block_count=quality.generated_block_count,
+        uninspected_files=_safe_paths(quality.uninspected_files),
+        minimization_score=quality.minimization_score,
+        minimization_warnings=[_safe_text(value)[:100] for value in quality.minimization_warnings],
+        minimization_penalties={
+            _safe_text(key)[:100]: float(value)
+            for key, value in quality.minimization_penalties.items()
+        },
         changed_source_files=_safe_paths(quality.changed_source_files),
         changed_test_files=_safe_paths(quality.changed_test_files),
         changed_docs_config_files=_safe_paths(quality.changed_docs_config_files),
@@ -454,7 +507,14 @@ def _test_phase_summaries(results: list[TestResult]) -> list[ReportTestPhase]:
     grouped: dict[str, list[TestResult]] = defaultdict(list)
     for result in results:
         grouped[result.phase].append(result)
-    preferred_order = {"setup": 0, "baseline": 1, "post_patch": 2, TEST_PHASE_HIDDEN_EVAL: 3}
+    preferred_order = {
+        "setup": 0,
+        "baseline": 1,
+        "post_patch": 2,
+        "lint": 3,
+        "format_check": 4,
+        TEST_PHASE_HIDDEN_EVAL: 5,
+    }
 
     summaries = []
     for phase, phase_results in sorted(

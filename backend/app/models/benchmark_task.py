@@ -43,6 +43,12 @@ class BenchmarkTask(UUIDPrimaryKeyMixin, CreatedAtMixin, Base):
     linked_pr_url: Mapped[str | None] = mapped_column(String(2048), nullable=True)
     setup_commands: Mapped[list[str]] = mapped_column(JSON, default=list, nullable=False)
     test_commands: Mapped[list[str]] = mapped_column(JSON, default=list, nullable=False)
+    lint_commands: Mapped[list[str]] = mapped_column(
+        JSON, default=list, server_default=text("'[]'"), nullable=False
+    )
+    format_check_commands: Mapped[list[str]] = mapped_column(
+        JSON, default=list, server_default=text("'[]'"), nullable=False
+    )
     notes: Mapped[str | None] = mapped_column(Text, nullable=True)
     difficulty: Mapped[str] = mapped_column(
         String(20), default="unknown", server_default="unknown", index=True, nullable=False

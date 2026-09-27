@@ -40,10 +40,14 @@ def start_agent_run(
     workspace_preparer: WorkspacePreparerDep,
     provider_factory: ModelProviderFactoryDep,
 ) -> AgentRunStartResponse:
-    if request.run_hidden_tests or request.targeted_tests_trusted_gold_files:
+    if (
+        request.run_hidden_tests
+        or request.targeted_tests_trusted_gold_files
+        or request.trusted_file_guardrail_override
+    ):
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
-            detail="Hidden or gold-assisted evaluation requires the trusted operator start endpoint.",
+            detail="Trusted evaluation or patch override requires the trusted operator start endpoint.",
         )
     return _start_run(
         benchmark_task_id,

@@ -72,7 +72,9 @@ class FlakinessCheckService:
             outcomes,
             repetitions_requested=request.repetitions,
         )
-        durations = [sum(result.duration_seconds for result in results) for _, results in repetition_results]
+        durations = [
+            sum(result.duration_seconds for result in results) for _, results in repetition_results
+        ]
         check = FlakinessCheck(
             benchmark_task_id=task.id,
             repetitions_requested=request.repetitions,
@@ -131,9 +133,13 @@ class FlakinessCheckService:
 
 
 def _configured_commands(commands: object, *, allow_empty: bool = False) -> bool:
-    return isinstance(commands, list) and (allow_empty or bool(commands)) and all(
-        isinstance(command, str) and bool(command.strip()) and len(command) <= 4000
-        for command in commands
+    return (
+        isinstance(commands, list)
+        and (allow_empty or bool(commands))
+        and all(
+            isinstance(command, str) and bool(command.strip()) and len(command) <= 4000
+            for command in commands
+        )
     )
 
 

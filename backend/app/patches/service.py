@@ -85,6 +85,7 @@ class PatchService:
         max_patch_bytes: int | None = None,
         max_changed_files: int | None = None,
         quality_service: PatchQualityService | None = None,
+        trusted_file_guardrail_override: bool = False,
     ) -> None:
         self._db = db
         self._agent_run_id = agent_run_id
@@ -107,6 +108,9 @@ class PatchService:
         self._max_patch_bytes = max_patch_bytes or settings.patch_max_bytes
         self._max_changed_files = max_changed_files or settings.patch_max_changed_files
         self._quality_service = quality_service or PatchQualityService(db)
+        self._trusted_file_guardrail_override = (
+            trusted_file_guardrail_override or self._run_has_logged_file_guardrail_override()
+        )
         self._ensure_git_workspace()
 
     def get_current_workspace_diff(self) -> WorkspaceDiffResult:
@@ -268,7 +272,9 @@ class PatchService:
         changed_files = self._sanitize_changed_files(changed_files)
         stats = self.calculate_patch_size_statistics(patch_text, changed_files)
         self._validate_patch_limits(patch_text, changed_files)
-        quality_analysis = self._enforce_patch_quality(patch_text, changed_files)
+        quality_analysis = self._enforce_patch_quality(
+            patch_text, changed_files, log_trusted_override=True
+        )
 
         version = self._db.scalar(
             select(func.max(GeneratedPatch.version)).where(
@@ -304,6 +310,8 @@ class PatchService:
                     "total_changed_lines": quality.total_changed_lines,
                     "unrelated_files_count": len(quality.unrelated_files),
                     "whitespace_only": quality.whitespace_only,
+                    "minimization_score": quality.minimization_score,
+                    "minimization_warnings": quality.minimization_warnings,
                     "warnings": quality.warnings,
                 },
             },
@@ -461,16 +469,27 @@ class PatchService:
             raise PatchSafetyError("Patches cannot touch hidden gold solution files.")
         if len(parts) >= 2 and parts[0] == ".benchmark" and parts[1] == "gold":
             raise PatchSafetyError("Patches cannot touch hidden gold solution files.")
+        lowered = relative_path.as_posix().lower()
+        if any(marker in lowered for marker in ("gold_patch", "gold_solution", "hidden_eval")):
+            raise PatchSafetyError("Patches cannot touch hidden gold solution files.")
 
     def _validate_patch_limits(self, patch_text: str, changed_files: list[str]) -> None:
         self._validate_patch_size(patch_text)
         self._validate_changed_file_count(changed_files)
 
-    def _enforce_patch_quality(self, patch_text: str, changed_files: list[str]):
+    def _enforce_patch_quality(
+        self,
+        patch_text: str,
+        changed_files: list[str],
+        *,
+        log_trusted_override: bool = False,
+    ):
         analysis = self._quality_service.analyze_patch(
             patch_text=patch_text,
             changed_files=changed_files,
             benchmark_task=self._agent_run.benchmark_task,
+            agent_run_id=self._agent_run_id,
+            trusted_file_guardrail_override=self._trusted_file_guardrail_override,
         )
         try:
             self._quality_service.enforce(analysis)
@@ -481,10 +500,37 @@ class PatchService:
                     "changed_file_count": analysis.changed_file_count,
                     "total_changed_lines": analysis.total_changed_lines,
                     "violations": analysis.hard_limit_violations,
+                    "edit_scope_violations": analysis.edit_scope_violations,
                 },
             )
             raise PatchSafetyError(str(exc)) from exc
+        if (
+            log_trusted_override
+            and self._trusted_file_guardrail_override
+            and analysis.edit_scope_violations
+        ):
+            self._log_event(
+                "patch_file_guardrail_override",
+                {
+                    "changed_files": changed_files,
+                    "bypassed_violations": analysis.edit_scope_violations,
+                    "trusted_operator": True,
+                },
+            )
         return analysis
+
+    def _run_has_logged_file_guardrail_override(self) -> bool:
+        return (
+            self._db.scalar(
+                select(AgentEvent.id)
+                .where(
+                    AgentEvent.agent_run_id == self._agent_run_id,
+                    AgentEvent.event_type == "patch_file_guardrail_override",
+                )
+                .limit(1)
+            )
+            is not None
+        )
 
     def _validate_patch_size(self, patch_text: str) -> None:
         if len(patch_text.encode("utf-8")) > self._max_patch_bytes:

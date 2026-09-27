@@ -59,10 +59,12 @@ class BenchmarkPackRunService:
         trusted_operator: bool = False,
     ) -> BenchmarkPackRunRead:
         if (
-            request.include_hidden_tests or request.targeted_tests_trusted_gold_files
+            request.include_hidden_tests
+            or request.targeted_tests_trusted_gold_files
+            or request.trusted_file_guardrail_override
         ) and not trusted_operator:
             raise PermissionError(
-                "Hidden or gold-assisted evaluation requires trusted operator access."
+                "Trusted evaluation or patch override requires trusted operator access."
             )
         pack = self._db.get(BenchmarkPack, pack_id)
         if pack is None:
@@ -329,6 +331,8 @@ def _definition_hash(task: BenchmarkTask) -> str:
         "task": to_agent_visible_task(task).model_dump(mode="json"),
         "setup_commands": task.setup_commands,
         "test_commands": task.test_commands,
+        "lint_commands": task.lint_commands,
+        "format_check_commands": task.format_check_commands,
         "allow_lockfile_changes": task.allow_lockfile_changes,
         "allow_dependency_file_changes": task.allow_dependency_file_changes,
     }

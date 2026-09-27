@@ -42,12 +42,21 @@ interface TestPhaseGroup {
   results: TestResult[];
 }
 
-const TEST_PHASE_ORDER = ["setup", "baseline", "post_patch", "hidden_eval"];
+const TEST_PHASE_ORDER = [
+  "setup",
+  "baseline",
+  "post_patch",
+  "lint",
+  "format_check",
+  "hidden_eval",
+];
 
 const TEST_PHASE_LABELS: Record<string, string> = {
   setup: "Setup",
   baseline: "Baseline",
   post_patch: "Post-patch",
+  lint: "Lint",
+  format_check: "Format check",
   hidden_eval: "Hidden eval",
 };
 
@@ -466,7 +475,7 @@ export function AgentRunDetailPage({ runId, onNavigate }: AgentRunDetailPageProp
           <span>{state.tests.length} commands</span>
         </div>
         {testsByPhase.length === 0 ? (
-          <p className="muted">No setup, baseline, or post-patch test logs are available yet.</p>
+          <p className="muted">No test or code-quality command logs are available yet.</p>
         ) : (
           <div className="test-phase-list">
             {testsByPhase.map((group) => (
@@ -530,6 +539,19 @@ export function AgentRunDetailPage({ runId, onNavigate }: AgentRunDetailPageProp
               detail="After patch"
               label="Visible Tests"
               value={testStatus(state.run.metric_summary.post_patch_tests_passed)}
+            />
+            <MetricItem
+              label="Lint"
+              value={optionalCheckStatus(state.run.metric_summary.lint_passed)}
+            />
+            <MetricItem
+              label="Format Check"
+              value={optionalCheckStatus(state.run.metric_summary.format_check_passed)}
+            />
+            <MetricItem
+              label="Code Quality"
+              tone={qualityTone(state.run.metric_summary.code_quality_passed)}
+              value={optionalCheckStatus(state.run.metric_summary.code_quality_passed)}
             />
             <MetricItem
               detail={
@@ -657,6 +679,20 @@ function MetricItem({
 
 function testStatus(passed: boolean): string {
   return passed ? "Passed" : "Failed";
+}
+
+function optionalCheckStatus(passed: boolean | null): string {
+  if (passed === null) {
+    return "Not run";
+  }
+  return passed ? "Passed" : "Failed";
+}
+
+function qualityTone(passed: boolean | null): "neutral" | "positive" | "negative" {
+  if (passed === null) {
+    return "neutral";
+  }
+  return passed ? "positive" : "negative";
 }
 
 function hiddenTestStatus(passed: boolean | null, runCount: number): string {

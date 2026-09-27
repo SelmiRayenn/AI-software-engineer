@@ -209,6 +209,26 @@ def test_hidden_evaluation_requires_trusted_start_and_runs_after_selected_patch(
     assert not (workspace_preparer.workspace / ".benchmark-hidden-eval").exists()
 
 
+def test_file_guardrail_override_requires_trusted_start(
+    client: TestClient,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    task_id = create_task(status="ready")
+    request = {"model_provider": "mock", "trusted_file_guardrail_override": True}
+
+    public_response = client.post(f"/agent-runs/{task_id}/start", json=request)
+
+    assert public_response.status_code == 403
+    monkeypatch.setattr(settings, "trusted_operator_token", "operator-token")
+    trusted_response = client.post(
+        f"/agent-runs/{task_id}/start-trusted",
+        headers={"X-Operator-Token": "operator-token"},
+        json=request,
+    )
+    assert trusted_response.status_code == 200, trusted_response.text
+    assert trusted_response.json()["run_config"]["trusted_file_guardrail_override"] is True
+
+
 def test_start_rejects_draft_task(client: TestClient) -> None:
     task_id = create_task(status="draft")
 
@@ -265,6 +285,38 @@ def test_start_records_setup_baseline_and_post_patch_results(client: TestClient)
 
     assert sorted(result.phase for result in results) == ["baseline", "post_patch", "setup"]
     assert all(result.passed for result in results)
+
+
+def test_enabled_lint_and_format_checks_run_after_final_patch(client: TestClient) -> None:
+    lint_command = python_command("print('lint from orchestrator')")
+    format_command = python_command("print('format from orchestrator')")
+    task_id = create_task(
+        status="ready",
+        lint_commands=[lint_command],
+        format_check_commands=[format_command],
+    )
+
+    response = client.post(
+        f"/agent-runs/{task_id}/start",
+        json={
+            "model_provider": "mock",
+            "run_lint_after_patch": True,
+            "run_format_check_after_patch": True,
+        },
+    )
+
+    assert response.status_code == 200, response.text
+    run_id = UUID(response.json()["id"])
+    with TestingSessionLocal() as db:
+        results = list(
+            db.scalars(select(ResultRecord).where(ResultRecord.agent_run_id == run_id)).all()
+        )
+        metric = db.get(AgentRun, run_id).evaluation_metric
+
+    assert {result.phase for result in results} >= {"lint", "format_check"}
+    assert metric.lint_passed is True
+    assert metric.format_check_passed is True
+    assert metric.code_quality_passed is True
 
 
 @pytest.mark.parametrize("auto_embed", [False, True])
@@ -533,9 +585,12 @@ def test_run_configuration_and_prompt_preview_are_stored_and_inspectable(
         "require_hypothesis_before_patch": True,
         "require_candidate_files_before_edit": True,
         "max_candidate_files": 10,
+        "trusted_file_guardrail_override": False,
         "enable_targeted_tests": False,
         "targeted_tests_max_commands": 3,
         "targeted_tests_trusted_gold_files": False,
+        "run_lint_after_patch": False,
+        "run_format_check_after_patch": False,
     }
 
     response = client.post(f"/agent-runs/{task_id}/start", json=request_payload)
@@ -577,6 +632,8 @@ def create_task(
     status: str,
     setup_commands: list[str] | None = None,
     test_commands: list[str] | None = None,
+    lint_commands: list[str] | None = None,
+    format_check_commands: list[str] | None = None,
     gold_patch_text: str = "diff --git a/src/calculator.py b/src/calculator.py\n",
 ) -> str:
     with TestingSessionLocal() as db:
@@ -602,6 +659,8 @@ def create_task(
             linked_pr_url="https://github.com/example/calculator/pull/43",
             setup_commands=setup_commands or [],
             test_commands=test_commands or [python_command("print('ok')")],
+            lint_commands=lint_commands or [],
+            format_check_commands=format_check_commands or [],
             status=status,
         )
         db.add(task)

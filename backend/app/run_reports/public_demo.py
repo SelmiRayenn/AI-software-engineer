@@ -160,6 +160,7 @@ class PublicDemoSnapshotService:
             joinedload(AgentRun.evaluation_metric),
             joinedload(AgentRun.failure),
             selectinload(AgentRun.generated_patches).selectinload(GeneratedPatch.human_review),
+            selectinload(AgentRun.generated_patches).selectinload(GeneratedPatch.quality),
         )
         if filters.model_provider is not None:
             statement = statement.where(AgentRun.model_provider == filters.model_provider)
@@ -202,6 +203,8 @@ class PublicDemoSnapshotService:
         task = run.benchmark_task
         repository = task.repository
         metric = run.evaluation_metric
+        patch = run.generated_patch
+        quality = patch.quality if patch else None
         failure_category = run.failure.category if run.failure else None
         return PublicDemoRun(
             run_id=run.id,
@@ -228,6 +231,16 @@ class PublicDemoSnapshotService:
             estimated_cost=(metric.estimated_cost or 0.0) if metric else 0.0,
             execution_time_seconds=(metric.execution_time_seconds or 0.0) if metric else 0.0,
             failure_category=_safe_text(failure_category) if failure_category else None,
+            patch_minimization_score=(
+                quality.minimization_score
+                if quality and quality.minimization_version >= 1
+                else None
+            ),
+            patch_minimization_warnings=(
+                [_safe_text(value)[:100] for value in quality.minimization_warnings]
+                if quality and quality.minimization_version >= 1
+                else []
+            ),
             started_at=run.started_at,
             completed_at=run.completed_at,
         )
@@ -307,9 +320,9 @@ def _append_run_table(lines: list[str], heading: str, runs: list[PublicDemoRun])
         [
             (
                 "| Repository | Task | Model | Status | Resolved | Visible | Hidden | "
-                "Localization | Cost | Time | Failure category |"
+                "Localization | Minimality | Cost | Time | Failure category |"
             ),
-            "| --- | --- | --- | --- | --- | --- | --- | ---: | ---: | ---: | --- |",
+            "| --- | --- | --- | --- | --- | --- | --- | ---: | ---: | ---: | ---: | --- |",
         ]
     )
     for run in runs:
@@ -322,11 +335,14 @@ def _append_run_table(lines: list[str], heading: str, runs: list[PublicDemoRun])
         localization = (
             "N/A" if run.file_localization_score is None else f"{run.file_localization_score:.4f}"
         )
+        minimality = (
+            "N/A" if run.patch_minimization_score is None else f"{run.patch_minimization_score:.4f}"
+        )
         lines.append(
             f"| {_md_cell(f'{run.repository_owner}/{run.repository_name}')} | "
             f"{_md_cell(issue)} | {_md_cell(f'{run.model_provider}/{run.model_name}')} | "
             f"{_md_cell(run.run_status)} | {_yes_no(run.issue_resolved)} | "
-            f"{_yes_no(run.visible_tests_passed)} | {hidden} | {localization} | "
+            f"{_yes_no(run.visible_tests_passed)} | {hidden} | {localization} | {minimality} | "
             f"${run.estimated_cost:.8f} | {run.execution_time_seconds:.4f}s | "
             f"{_md_cell(run.failure_category or '')} |"
         )

@@ -41,9 +41,7 @@ def db() -> Generator[Session, None, None]:
 
 
 def create_task(db: Session, *, setup: list[str] | None = None, tests: list[str] | None = None):
-    repository = Repository(
-        owner="example", name="flaky", url="https://github.com/example/flaky"
-    )
+    repository = Repository(owner="example", name="flaky", url="https://github.com/example/flaky")
     task = BenchmarkTask(
         repository=repository,
         issue_title="Detect flaky baseline",
@@ -119,9 +117,9 @@ def test_stable_task_persists_repetitions_and_metrics(db: Session) -> None:
 
 def test_alternating_results_are_flaky(db: Session) -> None:
     task = create_task(db)
-    check = FlakinessCheckService(
-        db, runner=FakeRunner(sandbox_response([True, False, True]))
-    ).run(task.id, FlakinessCheckRequest())
+    check = FlakinessCheckService(db, runner=FakeRunner(sandbox_response([True, False, True]))).run(
+        task.id, FlakinessCheckRequest()
+    )
 
     assert check.status == "flaky"
     assert check.pass_count == 2 and check.fail_count == 1

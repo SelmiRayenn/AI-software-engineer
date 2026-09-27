@@ -103,6 +103,8 @@ class GitHubBenchmarkTaskCreator:
             linked_pr_url=pull_request.html_url,
             setup_commands=request.setup_commands,
             test_commands=request.test_commands,
+            lint_commands=request.lint_commands,
+            format_check_commands=request.format_check_commands,
             notes=request.notes,
             allow_lockfile_changes=request.allow_lockfile_changes,
             allow_dependency_file_changes=request.allow_dependency_file_changes,

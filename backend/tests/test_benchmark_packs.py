@@ -234,7 +234,9 @@ def test_import_assigns_only_successful_new_tasks_to_pack_in_source_order(
     assert [task["order_index"] for task in detail["tasks"]] == [7, 8, 9]
     imported_ids = response.json()["created_task_ids"]
     assert [task["benchmark_task_id"] for task in detail["tasks"][1:]] == imported_ids
-    assert all(task["difficulty"] == "unknown" and task["tags"] == [] for task in detail["tasks"][1:])
+    assert all(
+        task["difficulty"] == "unknown" and task["tags"] == [] for task in detail["tasks"][1:]
+    )
     assert db.scalars(
         select(BenchmarkPackTask).where(BenchmarkPackTask.benchmark_pack_id == UUID(pack["id"]))
     ).all()

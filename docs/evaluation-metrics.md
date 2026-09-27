@@ -97,6 +97,21 @@ hidden phase cannot report success. The API returns `hidden_tests_passed: null` 
 commands ran, which lets clients distinguish lower-confidence visible-only success from hidden
 evaluation failure.
 
+### Code Quality Checks
+
+Optional post-patch quality phases are tracked independently from functional success:
+
+- `lint_passed`: null when lint was not run; otherwise true only when the configured lint phase
+  completed and every lint command passed.
+- `format_check_passed`: null when formatting was not checked; otherwise true only when the
+  configured format-check phase completed and every command passed.
+- `code_quality_passed`: null when neither quality phase ran; true when every quality phase that
+  ran passed; false when any executed quality phase failed.
+
+These fields do not alter `tests_passed`, `post_patch_tests_passed`, or `issue_resolved`. This keeps
+functional correctness separate from review quality while allowing dashboards and reports to flag
+a patch that passes tests but fails lint or formatting policy.
+
 ### Modified And Unrelated Files
 
 `modified_files_count` is the number of files listed on the `GeneratedPatch`.

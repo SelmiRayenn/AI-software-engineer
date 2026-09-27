@@ -53,6 +53,13 @@ def validate_benchmark_task(db: Session, task: BenchmarkTask) -> BenchmarkTaskVa
 
     _validate_commands(errors, task.setup_commands, "setup_commands", require_nonempty=False)
     _validate_commands(errors, task.test_commands, "test_commands", require_nonempty=True)
+    _validate_commands(errors, task.lint_commands, "lint_commands", require_nonempty=False)
+    _validate_commands(
+        errors,
+        task.format_check_commands,
+        "format_check_commands",
+        require_nonempty=False,
+    )
 
     gold_patch = crud.get_gold_patch_for_task(db, task.id)
     if gold_patch is None:

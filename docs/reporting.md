@@ -34,8 +34,9 @@ The JSON format is versioned with `schema_version`. Both formats include:
 - the recorded run configuration, when available
 - a bounded chronological trace summary and event counts
 - files inspected and files modified
-- selected patch metadata, quality signals, review status, and a bounded diff
-- visible setup, baseline, and post-patch test summaries with bounded logs
+- selected patch metadata, quality/minimization signals, review status, and a bounded diff
+- visible setup, baseline, post-patch, lint, and format-check summaries with bounded logs
+- separate lint, format-check, and combined code-quality metric status
 - hidden evaluation aggregate counts only
 - evaluation metrics and issue-resolution signals
 - persistent failure classification for failed runs
@@ -43,6 +44,11 @@ The JSON format is versioned with `schema_version`. Both formats include:
 
 The patch `reference` points to the existing run patch endpoint when the full diff is larger than
 the embedded report limit.
+
+The patch-quality section includes the 0.0-1.0 minimization score, file-kind split, hunk count,
+warning codes, uninspected modified files, and named score penalties. Markdown renders the same
+reviewability summary without hiding hard quality violations. This analysis is deterministic and
+does not claim that a broad patch is semantically wrong.
 
 ## Benchmark Pack Run Contents
 
@@ -54,7 +60,7 @@ task title, pack membership, or current metric is edited later. They include:
 - task completion/failure counts and visible, hidden, and issue-resolution rates
 - average localization and issue-specific scores
 - total tokens, estimated cost, and execution time
-- an ordered per-task results table with metric snapshots
+- an ordered per-task results table with functional and code-quality metric snapshots
 - failure category counts and recurring bounded failure groups
 - failed-task details with redacted, byte-limited summaries
 - explicit limitations covering sequential execution, hidden-evaluation visibility, pricing, and
@@ -81,6 +87,8 @@ examples are runs with status `failed`.
 
 The snapshot includes a timestamp, echoed filters, optional pack identity, aggregate analytics,
 the first ten ranked model configurations, total token/cost/time usage, and compact run examples.
+Selected runs include only the scalar minimization score and warning codes; they do not include
+patch text, changed paths, evidence paths, or penalty details.
 Failed examples expose only the persistent failure category. They never include the failure message,
 trace, test logs, model response, patch, or event payload.
 
