@@ -54,7 +54,7 @@ def client() -> TestClient:
     return TestClient(app)
 
 
-def _create_replay_run(db: Session) -> AgentRun:
+def _create_replay_run(db: Session, *, secret_text: str = "") -> AgentRun:
     repository = Repository(
         owner="example",
         name="replay",
@@ -134,7 +134,7 @@ def _create_replay_run(db: Session) -> AgentRun:
                 created_at=datetime(2026, 9, 27, 10, 0, 2, tzinfo=UTC),
                 payload_json={
                     "success": True,
-                    "content_preview": "Use read_file with sk-model-secret-value",
+                    "content_preview": ("Use read_file with sk-model-secret-value\n" + secret_text),
                     "tool_calls": [
                         {
                             "id": "call-1",
@@ -287,9 +287,10 @@ def test_replay_snapshot_contains_reproducible_sanitized_context(client: TestCli
 
 def test_replay_snapshot_excludes_protected_data_and_marks_safety_actions(
     client: TestClient,
+    fake_secret_samples: dict[str, object],
 ) -> None:
     with TestingSessionLocal() as db:
-        run_id = _create_replay_run(db).id
+        run_id = _create_replay_run(db, secret_text=str(fake_secret_samples["text"])).id
 
     payload = client.get(f"/agent-runs/{run_id}/replay-snapshot").json()
     serialized = json.dumps(payload)
@@ -309,6 +310,8 @@ def test_replay_snapshot_excludes_protected_data_and_marks_safety_actions(
         "run-secret-value",
     ):
         assert forbidden not in serialized
+    for secret in fake_secret_samples["secrets"]:
+        assert secret not in serialized
     assert payload["integrity"]["redaction_applied"] is True
     assert payload["integrity"]["truncation_applied"] is True
     assert payload["benchmark_context"]["issue_body"]["truncated"] is True
@@ -325,9 +328,11 @@ def test_replay_snapshot_checksum_is_stable_for_unchanged_run(client: TestClient
     assert first["integrity"]["checksum_sha256"] == second["integrity"]["checksum_sha256"]
 
 
-def test_replay_snapshot_markdown_export(client: TestClient) -> None:
+def test_replay_snapshot_markdown_export(
+    client: TestClient, fake_secret_samples: dict[str, object]
+) -> None:
     with TestingSessionLocal() as db:
-        run_id = _create_replay_run(db).id
+        run_id = _create_replay_run(db, secret_text=str(fake_secret_samples["text"])).id
 
     response = client.get(f"/agent-runs/{run_id}/replay-snapshot?format=md")
 
@@ -338,6 +343,8 @@ def test_replay_snapshot_markdown_export(client: TestClient) -> None:
     assert "## Evaluation Metrics" in response.text
     assert "GOLD_PATCH_PAYLOAD_MUST_NOT_APPEAR" not in response.text
     assert "HIDDEN_COMMAND_MUST_NOT_APPEAR" not in response.text
+    for secret in fake_secret_samples["secrets"]:
+        assert secret not in response.text
 
 
 def test_replay_snapshot_missing_run_returns_404(client: TestClient) -> None:

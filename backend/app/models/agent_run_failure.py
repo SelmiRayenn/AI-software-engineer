@@ -3,10 +3,11 @@ from __future__ import annotations
 import uuid
 from typing import TYPE_CHECKING
 
-from sqlalchemy import ForeignKey, String, Text
+from sqlalchemy import ForeignKey, String, Text, event
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from sqlalchemy.types import Uuid
 
+from app.core.redaction import redact_and_truncate
 from app.db.base import Base
 from app.models.mixins import CreatedAtMixin, UUIDPrimaryKeyMixin
 
@@ -35,3 +36,11 @@ class AgentRunFailure(UUIDPrimaryKeyMixin, CreatedAtMixin, Base):
 
     agent_run: Mapped["AgentRun"] = relationship(back_populates="failure")
     source_event: Mapped["AgentEvent | None"] = relationship()
+
+
+@event.listens_for(AgentRunFailure, "before_insert")
+@event.listens_for(AgentRunFailure, "before_update")
+def redact_failure_summary(_mapper: object, _connection: object, target: AgentRunFailure) -> None:
+    target.human_readable_summary = redact_and_truncate(
+        target.human_readable_summary, max_chars=8_000
+    )

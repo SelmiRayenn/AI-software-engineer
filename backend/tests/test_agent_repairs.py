@@ -50,6 +50,9 @@ class ObservingMock(MockModelProvider):
         return super().generate_response(messages, tools)
 
 
+pytestmark = pytest.mark.usefixtures("trusted_local_commands")
+
+
 @pytest.fixture()
 def harness(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
     # These legacy repair-budget scenarios intentionally disable candidate gating.

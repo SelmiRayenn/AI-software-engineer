@@ -155,9 +155,32 @@ does not expose hidden commands, test names, file paths, assertions, stacks, or 
 
 - Setup, test, lint, and format-check commands are read from the benchmark task, not the frontend.
 - Test command execution rejects commands that are not configured on the benchmark task.
-- Commands run inside the active agent-run workspace.
+- Commands run on an isolated Docker copy of the active agent-run workspace, never on the host.
 - Patch application reuses patch-management safety checks.
 - Test execution is blocked for immutable run states: `completed`, `failed`, and `cancelled`.
+
+### Network Isolation
+
+Setup, baseline, post-patch, hidden evaluation, lint, format checks, flakiness repetitions, and
+agent `run_tests` all default to Docker `network_mode=none`. The command allowlists, timeout,
+output limits, memory/CPU limits, dropped capabilities, and nonprivileged execution remain enforced.
+
+`SANDBOX_ALLOW_NETWORK_DURING_SETUP=true` permits dependency downloads using bridge networking
+during setup only. The session stops setup processes and restarts with the same filesystem but
+disabled networking before tests. Test networking requires both
+`SANDBOX_ALLOW_NETWORK_DURING_TESTS=true` and `SANDBOX_NETWORK_MODE=bridge`. No agent tool or test
+endpoint can change those settings. Host/custom network modes are rejected.
+
+Each command records a `sandbox_network_policy` event with phase, requested/effective mode,
+exception flag, and reason. Policy errors include a structured error code. Inspect these events
+in run traces and the network-policy summary in run reports; hidden-test commands remain excluded.
+`TestResult` continues storing the command's bounded logs and outcome, while policy metadata lives
+in events without requiring a database migration. `SANDBOX_ALLOWED_HOSTS` is reserved for future
+use and cannot enable hostname filtering. See [sandbox policy](sandbox.md#network-policy).
+
+Direct backend callers should use `TestExecutionService` as a context manager or call `close()`
+when finished. An injected `DockerCommandSession` is owned by its caller. The API and orchestrator
+close their sessions automatically, including on failure, and report Docker cleanup errors.
 
 ## Orchestrator Integration
 
@@ -196,8 +219,10 @@ not patch attempts. Repeated failures require repeated reasoning updates. Disabl
 their one-submission behavior, and setup, baseline, hidden-evaluation and standalone test endpoints
 are unaffected. Final passing selection clears the run failure state without erasing earlier logs.
 
-Tests that mutate tracked or unignored workspace files invalidate the candidate, which must then be
-inspected and resubmitted. Configure repository ignore rules for ordinary build/test artifacts.
+Changes to the host candidate invalidate it and must be inspected and resubmitted. Commands now
+execute against a container copy; files generated or modified by test commands are not imported
+back into the host patch. Configure checks rather than in-place formatters, and do not rely on
+test-side modifications becoming agent edits.
 Patch validation/application failure produces an attempt event without invented command results.
 
 The run's final candidate is exposed through `final_patch_id`, and `final_patch_passed_tests` is
@@ -209,8 +234,11 @@ No post-patch commands means untested, not passing. Test history stays available
 
 - Execution is still synchronous.
 - The active workspace must still exist.
-- The current implementation runs configured commands in the prepared workspace process context.
-  Deeper Docker lifecycle integration is still planned.
+- Docker must provide Linux containers. Commands must use executables available inside the image.
+- Managed phases share setup dependencies, but separate standalone API calls use fresh containers.
+  Standalone post-patch requests need dependencies preinstalled in `SANDBOX_IMAGE`.
+- Setup/test filesystem outputs are container-local; workspace retention does not retain containers.
+- Network exceptions are unrestricted bridge access, not hostname-filtered egress.
 
 ## Baseline Flakiness Checks
 

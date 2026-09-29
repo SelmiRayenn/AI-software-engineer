@@ -3,10 +3,21 @@ from __future__ import annotations
 import uuid
 from datetime import datetime
 
-from sqlalchemy import JSON, Boolean, DateTime, ForeignKey, Integer, String, Text, UniqueConstraint
+from sqlalchemy import (
+    JSON,
+    Boolean,
+    DateTime,
+    ForeignKey,
+    Integer,
+    String,
+    Text,
+    UniqueConstraint,
+    event,
+)
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from sqlalchemy.types import Uuid
 
+from app.core.redaction import redact_and_truncate, redact_structured_value
 from app.db.base import Base
 from app.models.mixins import CreatedAtMixin, UUIDPrimaryKeyMixin
 
@@ -66,3 +77,22 @@ class BenchmarkPackRunTask(UUIDPrimaryKeyMixin, CreatedAtMixin, Base):
     completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
 
     pack_run: Mapped["BenchmarkPackRun"] = relationship(back_populates="tasks")
+
+
+@event.listens_for(BenchmarkPackRun, "before_insert")
+@event.listens_for(BenchmarkPackRun, "before_update")
+def redact_pack_run(_mapper: object, _connection: object, target: BenchmarkPackRun) -> None:
+    target.run_config = redact_structured_value(target.run_config)
+    target.aggregates = redact_structured_value(target.aggregates)
+
+
+@event.listens_for(BenchmarkPackRunTask, "before_insert")
+@event.listens_for(BenchmarkPackRunTask, "before_update")
+def redact_pack_run_task(
+    _mapper: object, _connection: object, target: BenchmarkPackRunTask
+) -> None:
+    target.task_snapshot = redact_structured_value(target.task_snapshot)
+    if target.metric_summary is not None:
+        target.metric_summary = redact_structured_value(target.metric_summary)
+    if target.failure_summary is not None:
+        target.failure_summary = redact_and_truncate(target.failure_summary, max_chars=8_000)

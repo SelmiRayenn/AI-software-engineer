@@ -2,12 +2,20 @@ from datetime import datetime
 from typing import Any, Literal
 from uuid import UUID
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
+from app.core.redaction import redact_structured_value
 from app.schemas.agent_plan import AgentPlanRead
 
 
-class AgentRunTraceEvent(BaseModel):
+class _SafeTraceModel(BaseModel):
+    @model_validator(mode="before")
+    @classmethod
+    def redact_trace_fields(cls, value):
+        return redact_structured_value(value, max_string_chars=8_192)
+
+
+class AgentRunTraceEvent(_SafeTraceModel):
     id: UUID
     created_at: datetime
     event_type: str
@@ -18,7 +26,7 @@ class AgentRunTraceEvent(BaseModel):
     severity: Literal["info", "warning", "error"]
 
 
-class TracePatchSummary(BaseModel):
+class TracePatchSummary(_SafeTraceModel):
     id: UUID
     version: int
     is_selected: bool
@@ -27,7 +35,7 @@ class TracePatchSummary(BaseModel):
     created_at: datetime
 
 
-class TraceTestPhaseSummary(BaseModel):
+class TraceTestPhaseSummary(_SafeTraceModel):
     phase: str
     command_count: int
     passed_count: int
@@ -35,14 +43,14 @@ class TraceTestPhaseSummary(BaseModel):
     duration_seconds: float
 
 
-class TraceFailureSummary(BaseModel):
+class TraceFailureSummary(_SafeTraceModel):
     category: str
     summary: str
     source_event_id: UUID | None = None
     created_at: datetime
 
 
-class TraceMetricSummary(BaseModel):
+class TraceMetricSummary(_SafeTraceModel):
     file_localization_score: float | None
     patch_applied: bool
     baseline_tests_passed: bool
@@ -68,7 +76,7 @@ class TraceMetricSummary(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
 
-class AgentRunTraceRead(BaseModel):
+class AgentRunTraceRead(_SafeTraceModel):
     latest_plan: AgentPlanRead | None = None
     plan_status: Literal["not_submitted", "accepted", "rejected"] = "not_submitted"
     run_id: UUID

@@ -53,7 +53,6 @@ class FlakinessCheckService:
                 setup_commands=list(task.setup_commands),
                 test_commands=list(task.test_commands),
                 command_timeout_seconds=timeout,
-                network_enabled=False,
                 test_repetitions=request.repetitions,
                 stop_on_first_test_failure=request.stop_on_first_failure,
             )

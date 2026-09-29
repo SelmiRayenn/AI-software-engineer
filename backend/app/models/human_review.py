@@ -4,10 +4,11 @@ import uuid
 from datetime import datetime
 from typing import TYPE_CHECKING
 
-from sqlalchemy import DateTime, ForeignKey, String, Text, func
+from sqlalchemy import DateTime, ForeignKey, String, Text, event, func
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from sqlalchemy.types import Uuid
 
+from app.core.redaction import redact_and_truncate
 from app.db.base import Base
 from app.models.mixins import UUIDPrimaryKeyMixin
 
@@ -35,3 +36,12 @@ class HumanReview(UUIDPrimaryKeyMixin, Base):
     )
 
     generated_patch: Mapped["GeneratedPatch"] = relationship(back_populates="human_review")
+
+
+@event.listens_for(HumanReview, "before_insert")
+@event.listens_for(HumanReview, "before_update")
+def redact_human_review(_mapper: object, _connection: object, target: HumanReview) -> None:
+    if target.reviewer_name is not None:
+        target.reviewer_name = redact_and_truncate(target.reviewer_name, max_chars=255)
+    if target.review_notes is not None:
+        target.review_notes = redact_and_truncate(target.review_notes, max_chars=8_000)

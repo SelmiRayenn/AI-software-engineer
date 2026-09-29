@@ -29,6 +29,7 @@ from app.schemas.run_report import (
     ReportHumanReview,
     ReportIssueSummary,
     ReportModel,
+    ReportNetworkPolicySummary,
     ReportPatchQuality,
     ReportRepository,
     ReportRunMetadata,
@@ -127,6 +128,7 @@ class AgentRunReportService:
             ),
             run_configuration=self._run_configuration(run.id),
             trace=_trace_summary(trace),
+            network_policy=_network_policy_summary(trace),
             files_inspected=_inspected_files(trace),
             files_modified=changed_files,
             final_patch=_final_patch(run.id, patch, changed_files),
@@ -235,6 +237,18 @@ class AgentRunReportService:
                 f"{_safe_text(event.summary)}{tool}"
             )
 
+        network = report.network_policy
+        lines.extend(
+            [
+                "",
+                "## Sandbox Network Policy",
+                "",
+                f"- Recorded commands: {network.recorded_command_count}",
+                f"- Network exceptions: {network.network_exception_count}",
+                f"- Exception phases: {', '.join(network.exception_phases) or 'None recorded'}",
+                f"- Effective modes: {', '.join(network.effective_modes) or 'Not recorded'}",
+            ]
+        )
         lines.extend(["", "## Files Inspected / Read", ""])
         lines.extend(_markdown_path_list(report.files_inspected))
         lines.extend(["", "## Files Modified", ""])
@@ -434,6 +448,41 @@ class AgentRunReportService:
         except ValidationError:
             return None
         return config.model_dump(mode="json")
+
+
+def _network_policy_summary(trace: Any) -> ReportNetworkPolicySummary:
+    decisions = [
+        event.sanitized_payload
+        for event in trace.events
+        if event.event_type == "sandbox_network_policy"
+    ]
+    exceptions = [item for item in decisions if item.get("network_exception") is True]
+    known_phases = {
+        "setup",
+        "baseline",
+        "post_patch",
+        "hidden_eval",
+        "lint",
+        "format_check",
+        "agent_test",
+    }
+    return ReportNetworkPolicySummary(
+        recorded_command_count=len(decisions),
+        network_exception_count=len(exceptions),
+        exception_phases=sorted(
+            {
+                item["phase"] if item.get("phase") in known_phases else "unknown"
+                for item in exceptions
+            }
+        ),
+        effective_modes=sorted(
+            {
+                item["effective_network_mode"]
+                for item in decisions
+                if item.get("effective_network_mode") in {"none", "bridge"}
+            }
+        ),
+    )
 
 
 def _trace_summary(trace: Any) -> ReportTraceSummary:

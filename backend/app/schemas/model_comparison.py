@@ -2,8 +2,9 @@ from datetime import datetime
 from typing import Literal
 from uuid import UUID
 
-from pydantic import BaseModel, ConfigDict, Field, model_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
+from app.core.redaction import redact_common_secrets
 from app.schemas.agent_run import AgentRunStartRequest
 from app.schemas.failure import FailureCategory
 
@@ -89,6 +90,11 @@ class ModelComparisonRun(BaseModel):
     final_patch_passed_tests: bool | None = None
     failure_summary: str | None = None
     failure_category: FailureCategory | None = None
+
+    @field_validator("provider", "model", "failure_reason", "failure_summary", mode="before")
+    @classmethod
+    def redact_run_text(cls, value: str | None) -> str | None:
+        return redact_common_secrets(value) if value is not None else None
 
 
 class ComparisonWinner(BaseModel):

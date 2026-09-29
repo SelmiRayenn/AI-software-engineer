@@ -3,10 +3,11 @@ from __future__ import annotations
 import uuid
 from typing import TYPE_CHECKING
 
-from sqlalchemy import Boolean, Float, ForeignKey, Integer, String, Text
+from sqlalchemy import Boolean, Float, ForeignKey, Integer, String, Text, event
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from sqlalchemy.types import Uuid
 
+from app.core.redaction import redact_and_truncate
 from app.db.base import Base
 from app.models.mixins import CreatedAtMixin, UUIDPrimaryKeyMixin
 
@@ -36,3 +37,13 @@ class TestResult(UUIDPrimaryKeyMixin, CreatedAtMixin, Base):
     duration_seconds: Mapped[float | None] = mapped_column(Float, nullable=True)
 
     agent_run: Mapped["AgentRun"] = relationship(back_populates="test_results")
+
+
+@event.listens_for(TestResult, "before_insert")
+@event.listens_for(TestResult, "before_update")
+def redact_test_result_output(_mapper: object, _connection: object, target: TestResult) -> None:
+    target.command = redact_and_truncate(target.command, max_chars=4_096)
+    if target.stdout is not None:
+        target.stdout = redact_and_truncate(target.stdout, max_chars=64_000)
+    if target.stderr is not None:
+        target.stderr = redact_and_truncate(target.stderr, max_chars=64_000)

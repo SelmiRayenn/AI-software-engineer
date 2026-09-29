@@ -31,6 +31,9 @@ def override_get_db() -> Generator[Session, None, None]:
         db.close()
 
 
+pytestmark = pytest.mark.usefixtures("trusted_local_commands")
+
+
 @pytest.fixture()
 def client() -> Generator[TestClient, None, None]:
     Base.metadata.drop_all(bind=engine)

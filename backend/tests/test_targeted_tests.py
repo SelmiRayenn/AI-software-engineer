@@ -35,6 +35,9 @@ engine = create_engine(
 TestingSessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 
 
+pytestmark = pytest.mark.usefixtures("trusted_local_commands")
+
+
 @pytest.fixture()
 def db() -> Generator[Session, None, None]:
     Base.metadata.drop_all(engine)

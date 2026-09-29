@@ -10,8 +10,8 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.agents.loop import registered_tool_names
-from app.agents.prompts import redact_prompt_text
 from app.core.config import settings
+from app.core.redaction import is_sensitive_key, redact_common_secrets, redact_structured_value
 from app.models import AgentEvent, AgentRun
 from app.run_traces import AgentRunTraceService
 from app.schemas.agent_run import AgentRunConfig
@@ -444,7 +444,7 @@ def _bounded_text(value: str) -> ReplayText:
 
 
 def _safe_text(value: str) -> str:
-    return redact_prompt_text(value)
+    return redact_common_secrets(value)
 
 
 def _call_id(payload: dict[str, Any]) -> str | None:
@@ -474,7 +474,9 @@ def _replay_safe_tool_value(value: Any) -> Any:
         safe: dict[str, Any] = {}
         for key, nested in value.items():
             normalized = str(key).strip().lower().replace("-", "_")
-            if normalized in {"content", "patch_text", "stdout", "stderr", "raw_response"}:
+            if is_sensitive_key(normalized):
+                safe[str(key)] = "[REDACTED]"
+            elif normalized in {"content", "patch_text", "stdout", "stderr", "raw_response"}:
                 safe[str(key)] = "[OMITTED: raw content is not included in replay snapshots]"
             elif normalized in {"gold", "hidden_tests"} or any(
                 marker in normalized
@@ -492,10 +494,10 @@ def _replay_safe_tool_value(value: Any) -> Any:
                 safe[str(key)] = "[REDACTED: protected benchmark data]"
             else:
                 safe[str(key)] = _replay_safe_tool_value(nested)
-        return safe
+        return redact_structured_value(safe, max_string_chars=MAX_REPLAY_TEXT_BYTES)
     if isinstance(value, list):
         return [_replay_safe_tool_value(item) for item in value]
-    return value
+    return redact_structured_value(value, max_string_chars=MAX_REPLAY_TEXT_BYTES)
 
 
 def _error_summary(payload: dict[str, Any]) -> str | None:

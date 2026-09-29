@@ -46,6 +46,14 @@ class Settings(BaseSettings):
         alias="SANDBOX_MAX_COMMAND_TIMEOUT_SECONDS",
     )
     sandbox_network_enabled: bool = Field(default=False, alias="SANDBOX_NETWORK_ENABLED")
+    sandbox_network_mode: str = Field(default="none", alias="SANDBOX_NETWORK_MODE")
+    sandbox_allow_network_during_setup: bool = Field(
+        default=False, alias="SANDBOX_ALLOW_NETWORK_DURING_SETUP"
+    )
+    sandbox_allow_network_during_tests: bool = Field(
+        default=False, alias="SANDBOX_ALLOW_NETWORK_DURING_TESTS"
+    )
+    sandbox_allowed_hosts: str = Field(default="", alias="SANDBOX_ALLOWED_HOSTS")
     sandbox_pull_image: bool = Field(default=True, alias="SANDBOX_PULL_IMAGE")
     sandbox_max_output_bytes: int = Field(
         default=200_000,

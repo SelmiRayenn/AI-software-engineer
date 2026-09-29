@@ -278,8 +278,9 @@ def add_candidates(
     )
 
 
-def seed_public_demo_runs(db: Session):
+def seed_public_demo_runs(db: Session, *, secret_text: str = ""):
     first_task = create_task(db, "public-owner", "public-repo")
+    first_task.issue_title = f"{first_task.issue_title}\n{secret_text}"
     second_task = create_task(db, "other-owner", "other-repo")
     db.add_all(
         [
@@ -445,9 +446,12 @@ def seed_public_demo_runs(db: Session):
 
 def test_public_demo_snapshot_json_is_safe_and_contains_expected_sections(
     client: TestClient,
+    fake_secret_samples: dict[str, object],
 ) -> None:
     with TestingSessionLocal() as db:
-        pack, successful, failed, _ = seed_public_demo_runs(db)
+        pack, successful, failed, _ = seed_public_demo_runs(
+            db, secret_text=str(fake_secret_samples["text"])
+        )
         pack_id = pack.id
         successful_id = successful.id
         failed_id = failed.id
@@ -495,11 +499,15 @@ def test_public_demo_snapshot_json_is_safe_and_contains_expected_sections(
         "PRIVATE_FAILURE_SECRET",
     ):
         assert private not in serialized
+    for secret in fake_secret_samples["secrets"]:
+        assert secret not in serialized
 
 
-def test_public_demo_snapshot_markdown_is_portfolio_friendly(client: TestClient) -> None:
+def test_public_demo_snapshot_markdown_is_portfolio_friendly(
+    client: TestClient, fake_secret_samples: dict[str, object]
+) -> None:
     with TestingSessionLocal() as db:
-        pack, _, _, _ = seed_public_demo_runs(db)
+        pack, _, _, _ = seed_public_demo_runs(db, secret_text=str(fake_secret_samples["text"]))
         pack_id = pack.id
 
     response = client.get(
@@ -525,6 +533,8 @@ def test_public_demo_snapshot_markdown_is_portfolio_friendly(client: TestClient)
     assert "setup_failed" in response.text
     assert "PRIVATE_FAILURE_SECRET" not in response.text
     assert "PRIVATE_GOLD_PATCH_CONTENT" not in response.text
+    for secret in fake_secret_samples["secrets"]:
+        assert secret not in response.text
 
 
 def test_public_demo_snapshot_filters_and_total_limit_are_respected(

@@ -1,9 +1,9 @@
 from __future__ import annotations
 
-import re
 import subprocess
 import time
 from collections.abc import Callable, Sequence
+from contextlib import nullcontext
 from dataclasses import dataclass, field
 from pathlib import Path, PurePosixPath, PureWindowsPath
 from typing import Any
@@ -12,11 +12,14 @@ from uuid import UUID
 from sqlalchemy.orm import Session
 
 from app.agents.prompts import redact_prompt_text
+from app.core.redaction import is_sensitive_key
 from app.core.test_phases import TEST_PHASE_POST_PATCH
 from app.models import AgentEvent, AgentRun, TestResult
 from app.patches import PatchService
 from app.repository_indexing import RelevantFilesResult, RepositoryRetrievalService
 from app.repository_indexing.errors import RepositoryIndexError
+from app.sandbox.audit import record_network_decision
+from app.sandbox.commands import DockerCommandSession
 
 
 class ToolError(RuntimeError):
@@ -69,6 +72,8 @@ class TestCommandResult:
     stderr: str
     duration_seconds: float
     timed_out: bool = False
+    network_policy: dict[str, Any] | None = None
+    error_code: str | None = None
 
 
 @dataclass(frozen=True)
@@ -106,6 +111,7 @@ class AgentWorkspaceTools:
         command_timeout_seconds: int = 120,
         max_log_bytes: int = 200_000,
         trusted_file_guardrail_override: bool = False,
+        command_session: DockerCommandSession | None = None,
     ) -> None:
         self._db = db
         self._agent_run_id = agent_run_id
@@ -125,6 +131,7 @@ class AgentWorkspaceTools:
         self._command_timeout_seconds = command_timeout_seconds
         self._max_log_bytes = max_log_bytes
         self._trusted_file_guardrail_override = trusted_file_guardrail_override
+        self._command_session = command_session
 
     def retrieve_relevant_files(
         self,
@@ -273,42 +280,38 @@ class AgentWorkspaceTools:
             if command not in self._allowed_test_commands:
                 raise ToolSafetyError("run_tests command is not in the allowed test command list.")
 
-            started = time.perf_counter()
-            timed_out = False
-            try:
-                completed = subprocess.run(
-                    command,
-                    cwd=self._workspace_path,
-                    shell=True,
-                    text=True,
-                    capture_output=True,
-                    timeout=self._command_timeout_seconds,
-                    check=False,
+            context = (
+                nullcontext(self._command_session)
+                if self._command_session is not None
+                else DockerCommandSession()
+            )
+            with context as session:
+                completed = session.execute(
+                    workspace_path=self._workspace_path,
+                    command=command,
+                    phase="agent_test",
+                    timeout_seconds=self._command_timeout_seconds,
                 )
-                exit_code = completed.returncode
-                stdout = completed.stdout
-                stderr = completed.stderr
-            except subprocess.TimeoutExpired as exc:
-                timed_out = True
-                exit_code = 124
-                stdout = _decode_timeout_output(exc.stdout)
-                stderr = _decode_timeout_output(exc.stderr)
-
-            duration_seconds = time.perf_counter() - started
+            record_network_decision(self._db, self._agent_run_id, completed)
             result = TestCommandResult(
                 command=command,
-                passed=exit_code == 0 and not timed_out,
-                exit_code=exit_code,
-                stdout=self._truncate_log(stdout),
-                stderr=self._truncate_log(stderr),
-                duration_seconds=duration_seconds,
-                timed_out=timed_out,
+                passed=completed.passed,
+                exit_code=completed.exit_code if completed.exit_code is not None else 1,
+                stdout=self._truncate_log(completed.stdout),
+                stderr=self._truncate_log(completed.stderr),
+                duration_seconds=completed.duration_seconds,
+                timed_out=completed.timed_out,
+                network_policy=completed.network_policy.model_dump()
+                if completed.network_policy
+                else None,
+                error_code=completed.error_code,
             )
             metadata.extra.update(
                 {
                     "passed": result.passed,
                     "exit_code": result.exit_code,
                     "timed_out": result.timed_out,
+                    "network_policy": result.network_policy,
                 }
             )
             self._db.add(
@@ -575,29 +578,11 @@ def _sanitize_for_log(value: Any) -> Any:
 
 
 def _is_sensitive_key(key: str) -> bool:
-    normalized = key.lower().replace("-", "_")
-    return (
-        normalized in {"token", "access_token", "refresh_token", "auth_token"}
-        or "api_key" in normalized
-        or "apikey" in normalized
-        or "password" in normalized
-        or "secret" in normalized
-        or "authorization" in normalized
-    )
+    return is_sensitive_key(key)
 
 
 def _redact_secret_patterns(value: str) -> str:
-    redacted = re.sub(
-        r"(?i)\b(bearer\s+)[A-Za-z0-9._~+/=-]+",
-        r"\1[REDACTED]",
-        value,
-    )
-    redacted = re.sub(
-        r"\b(?:sk-[A-Za-z0-9_-]{8,}|gh[pousr]_[A-Za-z0-9_]{8,})\b",
-        "[REDACTED]",
-        redacted,
-    )
-    return redacted
+    return redact_prompt_text(value)
 
 
 def _unique_limited(values: list[str], limit: int = 100) -> list[str]:
@@ -611,11 +596,3 @@ def _unique_limited(values: list[str], limit: int = 100) -> list[str]:
         if len(result) >= limit:
             break
     return result
-
-
-def _decode_timeout_output(value: str | bytes | None) -> str:
-    if value is None:
-        return ""
-    if isinstance(value, bytes):
-        return value.decode("utf-8", errors="replace")
-    return value

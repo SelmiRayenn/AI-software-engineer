@@ -4,6 +4,7 @@ from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
+from app.core.redaction import redact_common_secrets
 from app.core.run_statuses import VALID_RUN_STATUSES
 from app.schemas.agent_candidate_files import CandidateFileRank
 from app.schemas.agent_hypothesis import AgentHypothesisRead
@@ -43,17 +44,32 @@ class AgentRunRead(AgentRunBase):
 
     model_config = ConfigDict(from_attributes=True)
 
+    @field_validator("failure_summary", mode="before")
+    @classmethod
+    def redact_failure_summary(cls, value: str | None) -> str | None:
+        return redact_common_secrets(value) if value is not None else None
+
 
 class AgentRunDetailRepository(BaseModel):
     name: str
     owner: str
     url: str
 
+    @field_validator("name", "owner", "url", mode="before")
+    @classmethod
+    def redact_repository_text(cls, value: str) -> str:
+        return redact_common_secrets(value)
+
 
 class AgentRunDetailBenchmarkTask(BaseModel):
     id: UUID
     issue_number: int | None = None
     issue_title: str
+
+    @field_validator("issue_title", mode="before")
+    @classmethod
+    def redact_issue_title(cls, value: str) -> str:
+        return redact_common_secrets(value)
 
 
 class AgentRunMetricSummary(BaseModel):
@@ -149,6 +165,11 @@ class AgentPromptPreview(BaseModel):
     tool_use_instructions: str
     patch_submission_instructions: str
 
+    @field_validator("*", mode="before")
+    @classmethod
+    def redact_prompt_section(cls, value: str) -> str:
+        return redact_common_secrets(value)
+
 
 class AgentRunDetailRead(BaseModel):
     latest_plan: AgentPlanRead | None = None
@@ -174,6 +195,11 @@ class AgentRunDetailRead(BaseModel):
     final_patch_passed_tests: bool | None = None
     failure_summary: str | None = None
     failure_category: FailureCategory | None = None
+
+    @field_validator("model_provider", "model_name", "failure_summary", mode="before")
+    @classmethod
+    def redact_detail_text(cls, value: str | None) -> str | None:
+        return redact_common_secrets(value) if value is not None else None
 
 
 class AgentRunStartRequest(AgentRunConfig):

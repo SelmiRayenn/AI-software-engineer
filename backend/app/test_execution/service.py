@@ -1,7 +1,5 @@
 from __future__ import annotations
 
-import subprocess
-import time
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from pathlib import Path
@@ -36,6 +34,8 @@ from app.failures.categories import (
 )
 from app.models import AgentEvent, AgentRun, GeneratedPatch, HiddenEvalTest, TestResult
 from app.patches import PatchError, PatchService
+from app.sandbox.audit import record_network_decision
+from app.sandbox.commands import DockerCommandSession
 from app.targeted_tests import TargetedTestSelectionService
 from app.test_execution.hidden_workspace import hidden_workspace
 from app.test_failure_analysis import TestFailureAnalysisService
@@ -75,6 +75,7 @@ class TestExecutionService:
         workspace_path: str | Path | None = None,
         command_timeout_seconds: int | None = None,
         max_log_bytes: int | None = None,
+        command_session: DockerCommandSession | None = None,
     ) -> None:
         self._db = db
         self._agent_run_id = agent_run_id
@@ -101,6 +102,18 @@ class TestExecutionService:
             settings.sandbox_max_command_timeout_seconds,
         )
         self._max_log_bytes = max_log_bytes or settings.sandbox_max_output_bytes
+        self._commands = command_session or DockerCommandSession()
+        self._owns_commands = command_session is None
+
+    def close(self) -> None:
+        if self._owns_commands:
+            self._commands.close()
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *args) -> None:
+        self.close()
 
     def list_results(self) -> list[TestResult]:
         statement = (
@@ -481,36 +494,13 @@ class TestExecutionService:
         attempt_number: int | None = None,
         workspace_path: Path | None = None,
     ) -> TestResult:
-        started = time.perf_counter()
-        timed_out = False
-        try:
-            completed = subprocess.run(
-                command,
-                cwd=workspace_path or self._workspace_path,
-                shell=True,
-                text=True,
-                capture_output=True,
-                timeout=self._command_timeout_seconds,
-                check=False,
-            )
-            exit_code = completed.returncode
-            stdout = completed.stdout
-            stderr = completed.stderr
-        except subprocess.TimeoutExpired as exc:
-            timed_out = True
-            exit_code = 124
-            stdout = _decode_timeout_output(exc.stdout)
-            stderr = _decode_timeout_output(exc.stderr)
-        except OSError as exc:
-            exit_code = 1
-            stdout = ""
-            stderr = str(exc)
-
-        if timed_out:
-            timeout_message = (
-                f"Command exceeded timeout of {self._command_timeout_seconds} seconds."
-            )
-            stderr = f"{stderr}\n{timeout_message}".strip()
+        result = self._commands.execute(
+            workspace_path=workspace_path or self._workspace_path,
+            command=command,
+            phase=phase,
+            timeout_seconds=self._command_timeout_seconds,
+        )
+        record_network_decision(self._db, self._agent_run_id, result)
 
         test_result = TestResult(
             agent_run_id=self._agent_run_id,
@@ -518,11 +508,11 @@ class TestExecutionService:
             command=command,
             generated_patch_id=generated_patch_id,
             attempt_number=attempt_number,
-            passed=exit_code == 0 and not timed_out,
-            exit_code=exit_code,
-            stdout=self._limit_log(stdout),
-            stderr=self._limit_log(stderr),
-            duration_seconds=time.perf_counter() - started,
+            passed=result.passed,
+            exit_code=result.exit_code if result.exit_code is not None else 1,
+            stdout=self._limit_log(result.stdout),
+            stderr=self._limit_log(result.stderr),
+            duration_seconds=result.duration_seconds,
         )
         self._db.add(test_result)
         self._db.commit()
@@ -659,14 +649,6 @@ class TestExecutionService:
 
 def _all_passed(results: list[TestResult]) -> bool:
     return all(result.passed for result in results)
-
-
-def _decode_timeout_output(value: str | bytes | None) -> str:
-    if value is None:
-        return ""
-    if isinstance(value, bytes):
-        return value.decode("utf-8", errors="replace")
-    return value
 
 
 def _test_failure_category(results: list[TestResult], default: str) -> str:

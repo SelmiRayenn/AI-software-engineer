@@ -2,13 +2,20 @@ from datetime import datetime
 from typing import Any, Literal
 from uuid import UUID
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, field_validator
+
+from app.core.redaction import redact_and_truncate
 
 
 class ReportText(BaseModel):
     text: str
     truncated: bool = False
     original_size_bytes: int
+
+    @field_validator("text", mode="before")
+    @classmethod
+    def redact_text(cls, value: str) -> str:
+        return redact_and_truncate(value, max_chars=64_000)
 
 
 class ReportRunMetadata(BaseModel):
@@ -177,6 +184,13 @@ class ReportFinalPatch(BaseModel):
     reference: str
 
 
+class ReportNetworkPolicySummary(BaseModel):
+    recorded_command_count: int = 0
+    network_exception_count: int = 0
+    exception_phases: list[str] = Field(default_factory=list)
+    effective_modes: list[str] = Field(default_factory=list)
+
+
 class AgentRunReport(BaseModel):
     schema_version: str = "1.0"
     generated_at: datetime
@@ -197,3 +211,4 @@ class AgentRunReport(BaseModel):
     failure: ReportFailure | None = None
     human_review: ReportHumanReview
     usage: ReportUsageSummary
+    network_policy: ReportNetworkPolicySummary = Field(default_factory=ReportNetworkPolicySummary)

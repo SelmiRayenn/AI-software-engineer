@@ -2,8 +2,9 @@ from datetime import datetime
 from typing import Literal
 from uuid import UUID
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
+from app.core.redaction import redact_common_secrets
 from app.schemas.agent_run import AgentRunConfig, AgentRunStartRequest
 from app.schemas.benchmark_task import AgentVisibleBenchmarkTaskRead
 from app.schemas.failure import FailureCategory
@@ -85,6 +86,11 @@ class BenchmarkPackRunTaskRead(BaseModel):
     started_at: datetime | None = None
     completed_at: datetime | None = None
 
+    @field_validator("status", "failure_summary", mode="before")
+    @classmethod
+    def redact_task_text(cls, value: str | None) -> str | None:
+        return redact_common_secrets(value) if value is not None else None
+
 
 class BenchmarkPackRunRead(BaseModel):
     model_config = ConfigDict(from_attributes=True)
@@ -105,3 +111,16 @@ class BenchmarkPackRunRead(BaseModel):
     completed_at: datetime | None = None
     aggregates: BenchmarkPackRunAggregates
     tasks: list[BenchmarkPackRunTaskRead]
+
+    @field_validator(
+        "pack_name",
+        "pack_slug",
+        "pack_version",
+        "model_provider",
+        "model_name",
+        "status",
+        mode="before",
+    )
+    @classmethod
+    def redact_pack_text(cls, value: str) -> str:
+        return redact_common_secrets(value)

@@ -1,6 +1,7 @@
 from typing import Annotated
 from uuid import UUID
 
+from docker.errors import DockerException
 from fastapi import APIRouter, Depends, Header, HTTPException, status
 from sqlalchemy import select
 from sqlalchemy.orm import Session
@@ -40,6 +41,8 @@ def run_baseline_tests(
         result = service.run_baseline_tests(run_setup=True)
     except TestExecutionError as exc:
         raise _http_error(exc) from exc
+    finally:
+        _close_execution_service(service)
     return _response(result)
 
 
@@ -54,6 +57,8 @@ def run_post_patch_tests(
         result = service.run_post_patch_tests()
     except TestExecutionError as exc:
         raise _http_error(exc) from exc
+    finally:
+        _close_execution_service(service)
     return _response(result)
 
 
@@ -127,6 +132,16 @@ def _test_execution_service(
         )
     except TestExecutionError as exc:
         raise _http_error(exc) from exc
+
+
+def _close_execution_service(service: TestExecutionService) -> None:
+    try:
+        service.close()
+    except DockerException as exc:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Docker cleanup failed; operator inspection required.",
+        ) from exc
 
 
 def _response(result) -> TestExecutionResponse:

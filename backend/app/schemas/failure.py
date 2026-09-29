@@ -2,7 +2,9 @@ from datetime import datetime
 from typing import Literal
 from uuid import UUID
 
-from pydantic import BaseModel
+from pydantic import BaseModel, field_validator
+
+from app.core.redaction import redact_common_secrets
 
 FailureCategory = Literal[
     "task_not_ready",
@@ -33,3 +35,8 @@ class AgentRunFailureRead(BaseModel):
     human_readable_summary: str
     source_event_id: UUID | None = None
     created_at: datetime
+
+    @field_validator("human_readable_summary", mode="before")
+    @classmethod
+    def redact_summary(cls, value: str) -> str:
+        return redact_common_secrets(value)

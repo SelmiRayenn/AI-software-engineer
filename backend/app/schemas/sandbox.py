@@ -1,6 +1,8 @@
 from typing import Literal
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
+
+from app.core.redaction import redact_and_truncate, redact_common_secrets
 
 SandboxStatus = Literal[
     "passed",
@@ -21,8 +23,15 @@ class SandboxRunRequest(BaseModel):
     test_commands: list[str] = Field(min_length=1, max_length=50)
     command_timeout_seconds: int | None = Field(default=None, ge=1)
     network_enabled: bool | None = None
+    network_mode: str | None = Field(default=None, max_length=100)
     test_repetitions: int = Field(default=1, ge=1, le=20)
     stop_on_first_test_failure: bool = False
+
+    @model_validator(mode="after")
+    def validate_network_request(self):
+        if self.network_enabled is not None and self.network_mode is not None:
+            raise ValueError("Use network_mode or legacy network_enabled, not both.")
+        return self
 
     @field_validator("setup_commands", "test_commands")
     @classmethod
@@ -35,8 +44,16 @@ class SandboxRunRequest(BaseModel):
         return commands
 
 
+class SandboxNetworkDecision(BaseModel):
+    phase: str
+    requested_network_mode: str
+    effective_network_mode: Literal["none", "bridge"]
+    network_exception: bool
+    reason: str
+
+
 class SandboxCommandResult(BaseModel):
-    phase: Literal["clone", "checkout", "setup", "test"]
+    phase: str
     command: str
     passed: bool
     timed_out: bool = False
@@ -46,6 +63,13 @@ class SandboxCommandResult(BaseModel):
     stdout_truncated: bool = False
     stderr_truncated: bool = False
     duration_seconds: float
+    network_policy: SandboxNetworkDecision | None = None
+    error_code: str | None = None
+
+    @field_validator("command", "stdout", "stderr", mode="before")
+    @classmethod
+    def redact_command_output(cls, value: str) -> str:
+        return redact_and_truncate(value, max_chars=64_000)
 
 
 class SandboxRunResponse(BaseModel):
@@ -66,3 +90,8 @@ class SandboxRunResponse(BaseModel):
     error_code: str | None = None
     error: str | None = None
     cleanup_error: str | None = None
+
+    @field_validator("repository_url", "error", "cleanup_error", mode="before")
+    @classmethod
+    def redact_response_text(cls, value: str | None) -> str | None:
+        return redact_common_secrets(value) if value is not None else None

@@ -206,27 +206,33 @@ def render_agent_prompts(
                 else "blocked"
             ),
         ),
-        issue_context_prompt=ISSUE_CONTEXT_PROMPT_TEMPLATE.format(
-            repository_json=json.dumps(repository_context, indent=2),
-            base_commit=task.base_commit,
-            issue_reference=f"#{task.issue_number}" if task.issue_number else "(no linked issue)",
-            issue_title=task.issue_title,
-            issue_body=task.issue_body or "(no issue body)",
-            issue_comments=(json.dumps(comments, indent=2) if comments else "(not included)"),
+        issue_context_prompt=redact_prompt_text(
+            ISSUE_CONTEXT_PROMPT_TEMPLATE.format(
+                repository_json=json.dumps(repository_context, indent=2),
+                base_commit=task.base_commit,
+                issue_reference=(
+                    f"#{task.issue_number}" if task.issue_number else "(no linked issue)"
+                ),
+                issue_title=task.issue_title,
+                issue_body=task.issue_body or "(no issue body)",
+                issue_comments=(json.dumps(comments, indent=2) if comments else "(not included)"),
+            )
         ),
-        tool_use_instructions=TOOL_USE_INSTRUCTIONS_TEMPLATE.format(
-            allowed_tools="\n".join(f"- {tool_name}" for tool_name in allowed_tools),
-            test_commands=(
-                "\n".join(f"- {command}" for command in visible_test_commands)
-                if visible_test_commands
-                else "(none exposed to the model)"
-            ),
-            test_tool_status="enabled" if enable_test_tool else "disabled",
-            test_tool_instruction=(
-                "Use run_tests only with one of the configured commands shown above."
-                if enable_test_tool
-                else "run_tests is unavailable; do not request shell or test execution."
-            ),
+        tool_use_instructions=redact_prompt_text(
+            TOOL_USE_INSTRUCTIONS_TEMPLATE.format(
+                allowed_tools="\n".join(f"- {tool_name}" for tool_name in allowed_tools),
+                test_commands=(
+                    "\n".join(f"- {command}" for command in visible_test_commands)
+                    if visible_test_commands
+                    else "(none exposed to the model)"
+                ),
+                test_tool_status="enabled" if enable_test_tool else "disabled",
+                test_tool_instruction=(
+                    "Use run_tests only with one of the configured commands shown above."
+                    if enable_test_tool
+                    else "run_tests is unavailable; do not request shell or test execution."
+                ),
+            )
         ),
         patch_submission_instructions=PATCH_SUBMISSION_INSTRUCTIONS_TEMPLATE,
     )

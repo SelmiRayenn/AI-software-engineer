@@ -91,6 +91,9 @@ def override_get_db() -> Generator[Session, None, None]:
         db.close()
 
 
+pytestmark = pytest.mark.usefixtures("trusted_local_commands")
+
+
 @pytest.fixture()
 def workspace(tmp_path: Path) -> Path:
     root = tmp_path / "workspace"

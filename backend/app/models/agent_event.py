@@ -3,10 +3,11 @@ from __future__ import annotations
 import uuid
 from typing import TYPE_CHECKING, Any
 
-from sqlalchemy import ForeignKey, String
+from sqlalchemy import ForeignKey, String, event
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from sqlalchemy.types import JSON, Uuid
 
+from app.core.redaction import redact_structured_value
 from app.db.base import Base
 from app.models.mixins import CreatedAtMixin, UUIDPrimaryKeyMixin
 
@@ -27,3 +28,9 @@ class AgentEvent(UUIDPrimaryKeyMixin, CreatedAtMixin, Base):
     payload_json: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict, nullable=False)
 
     agent_run: Mapped["AgentRun"] = relationship(back_populates="events")
+
+
+@event.listens_for(AgentEvent, "before_insert")
+@event.listens_for(AgentEvent, "before_update")
+def redact_agent_event_payload(_mapper: object, _connection: object, target: AgentEvent) -> None:
+    target.payload_json = redact_structured_value(target.payload_json)

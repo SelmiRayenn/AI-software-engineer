@@ -4,19 +4,27 @@ from datetime import datetime
 from typing import Any
 from uuid import UUID
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 
+from app.core.redaction import redact_structured_value
 from app.schemas.run_trace import TraceFailureSummary, TraceMetricSummary, TraceTestPhaseSummary
 
 
-class ReplayText(BaseModel):
+class _SafeReplayModel(BaseModel):
+    @model_validator(mode="before")
+    @classmethod
+    def redact_replay_fields(cls, value):
+        return redact_structured_value(value, max_string_chars=8_192)
+
+
+class ReplayText(_SafeReplayModel):
     text: str
     original_size_bytes: int
     truncated: bool = False
     redacted: bool = False
 
 
-class ReplayRepositoryContext(BaseModel):
+class ReplayRepositoryContext(_SafeReplayModel):
     id: UUID
     owner: str
     name: str
@@ -25,7 +33,7 @@ class ReplayRepositoryContext(BaseModel):
     language: str | None = None
 
 
-class ReplayBenchmarkContext(BaseModel):
+class ReplayBenchmarkContext(_SafeReplayModel):
     id: UUID
     issue_number: int | None = None
     issue_title: str
@@ -36,12 +44,12 @@ class ReplayBenchmarkContext(BaseModel):
     repository: ReplayRepositoryContext
 
 
-class ReplayModelContext(BaseModel):
+class ReplayModelContext(_SafeReplayModel):
     provider: str
     model: str
 
 
-class ReplayPromptSections(BaseModel):
+class ReplayPromptSections(_SafeReplayModel):
     system_prompt: ReplayText | None = None
     developer_safety_prompt: ReplayText | None = None
     issue_context_prompt: ReplayText | None = None
@@ -49,7 +57,7 @@ class ReplayPromptSections(BaseModel):
     patch_submission_instructions: ReplayText | None = None
 
 
-class ReplayToolCall(BaseModel):
+class ReplayToolCall(_SafeReplayModel):
     sequence: int
     event_id: UUID
     created_at: datetime
@@ -61,7 +69,7 @@ class ReplayToolCall(BaseModel):
     error_summary: str | None = None
 
 
-class ReplayModelResponse(BaseModel):
+class ReplayModelResponse(_SafeReplayModel):
     sequence: int
     event_id: UUID
     created_at: datetime
@@ -75,7 +83,7 @@ class ReplayModelResponse(BaseModel):
     requested_tools: list[str] = Field(default_factory=list)
 
 
-class ReplayPatchVersion(BaseModel):
+class ReplayPatchVersion(_SafeReplayModel):
     id: UUID
     version: int
     is_selected: bool
@@ -84,14 +92,14 @@ class ReplayPatchVersion(BaseModel):
     created_at: datetime
 
 
-class ReplayTimestamps(BaseModel):
+class ReplayTimestamps(_SafeReplayModel):
     run_started_at: datetime
     run_completed_at: datetime | None = None
     first_event_at: datetime | None = None
     last_event_at: datetime | None = None
 
 
-class ReplayIntegrityMetadata(BaseModel):
+class ReplayIntegrityMetadata(_SafeReplayModel):
     snapshot_created_at: datetime
     source_commit_sha: str | None = None
     app_version: str
@@ -103,7 +111,7 @@ class ReplayIntegrityMetadata(BaseModel):
     truncation_applied: bool
 
 
-class AgentRunReplaySnapshot(BaseModel):
+class AgentRunReplaySnapshot(_SafeReplayModel):
     schema_version: str = "1.0"
     run_id: UUID
     run_status: str

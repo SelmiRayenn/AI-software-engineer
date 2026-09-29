@@ -4,10 +4,11 @@ import uuid
 from datetime import datetime
 from typing import TYPE_CHECKING
 
-from sqlalchemy import Boolean, DateTime, ForeignKey, Integer, String, Text, func
+from sqlalchemy import Boolean, DateTime, ForeignKey, Integer, String, Text, event, func
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from sqlalchemy.types import Uuid
 
+from app.core.redaction import redact_and_truncate
 from app.db.base import Base
 from app.models.mixins import UUIDPrimaryKeyMixin
 
@@ -99,3 +100,10 @@ class AgentRun(UUIDPrimaryKeyMixin, Base):
     @property
     def failure_category(self) -> str | None:
         return self.failure.category if self.failure else None
+
+
+@event.listens_for(AgentRun, "before_insert")
+@event.listens_for(AgentRun, "before_update")
+def redact_agent_run_summary(_mapper: object, _connection: object, target: AgentRun) -> None:
+    if target.failure_summary is not None:
+        target.failure_summary = redact_and_truncate(target.failure_summary, max_chars=8_000)

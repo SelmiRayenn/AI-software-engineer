@@ -240,7 +240,9 @@ def successful_host_command(
     cwd: Path,
     timeout_seconds: int,
 ) -> SandboxCommandResult:
-    del args, cwd, timeout_seconds
+    if "clone" in args:
+        Path(args[-1]).mkdir(parents=True, exist_ok=True)
+    del cwd, timeout_seconds
     return SandboxCommandResult(
         phase=phase,
         command=command,
@@ -268,6 +270,12 @@ class FakeDockerClient:
     def ping(self) -> bool:
         return True
 
+    def info(self):
+        return {"OSType": "linux"}
+
+    def close(self):
+        pass
+
 
 class FakeImages:
     def get(self, image: str) -> str:
@@ -293,8 +301,9 @@ class FakeContainer:
     def start(self) -> None:
         pass
 
-    def put_archive(self, path: str, data: bytes) -> None:
+    def put_archive(self, path: str, data: bytes) -> bool:
         del path, data
+        return True
 
     def exec_run(self, *args, **kwargs) -> FakeExecResult:
         del args, kwargs

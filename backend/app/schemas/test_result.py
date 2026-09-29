@@ -1,7 +1,9 @@
 from datetime import datetime
 from uuid import UUID
 
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, field_validator
+
+from app.core.redaction import redact_and_truncate
 
 
 class TestResultBase(BaseModel):
@@ -26,3 +28,8 @@ class TestResultRead(TestResultBase):
     created_at: datetime
 
     model_config = ConfigDict(from_attributes=True)
+
+    @field_validator("command", "stdout", "stderr", mode="before")
+    @classmethod
+    def redact_output(cls, value: str | None) -> str | None:
+        return redact_and_truncate(value, max_chars=64_000) if value is not None else None

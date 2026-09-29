@@ -1,11 +1,11 @@
 from __future__ import annotations
 
-import re
 from uuid import UUID
 
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from app.core.redaction import redact_common_secrets
 from app.failures.categories import (
     FAILURE_BASELINE_TESTS_FAILED,
     FAILURE_CANCELLED,
@@ -210,18 +210,4 @@ def _default_summary(category: str) -> str:
 
 
 def _redact_summary(value: str) -> str:
-    redacted = re.sub(
-        r"(?i)\b(bearer\s+)[A-Za-z0-9._~+/=-]+",
-        r"\1[REDACTED]",
-        value,
-    )
-    redacted = re.sub(
-        r"\b(?:sk-[A-Za-z0-9_-]{8,}|gh[pousr]_[A-Za-z0-9_]{8,})\b",
-        "[REDACTED]",
-        redacted,
-    )
-    return re.sub(
-        r"(?i)\b(api[_-]?key|access[_-]?token|password|secret)\s*[:=]\s*([^\s,;]+)",
-        r"\1=[REDACTED]",
-        redacted,
-    )
+    return redact_common_secrets(value)

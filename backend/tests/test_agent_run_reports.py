@@ -57,7 +57,9 @@ def client() -> TestClient:
     return TestClient(app)
 
 
-def create_report_run(db: Session, *, decision: str = "approved") -> AgentRun:
+def create_report_run(
+    db: Session, *, decision: str = "approved", secret_text: str = ""
+) -> AgentRun:
     repository = Repository(
         owner="example",
         name="reporting",
@@ -223,7 +225,7 @@ def create_report_run(db: Session, *, decision: str = "approved") -> AgentRun:
                 passed=False,
                 exit_code=1,
                 stdout="x" * (MAX_LOG_BYTES + 500),
-                stderr="Bearer secret-token-value",
+                stderr=f"{secret_text}\nBearer secret-token-value",
                 duration_seconds=2.0,
             ),
             StoredTestResult(
@@ -293,9 +295,11 @@ def create_report_run(db: Session, *, decision: str = "approved") -> AgentRun:
     return run
 
 
-def test_json_report_contains_safe_complete_run_summary(client: TestClient) -> None:
+def test_json_report_contains_safe_complete_run_summary(
+    client: TestClient, fake_secret_samples: dict[str, object]
+) -> None:
     with TestingSessionLocal() as db:
-        run_id = create_report_run(db).id
+        run_id = create_report_run(db, secret_text=str(fake_secret_samples["text"])).id
 
     response = client.get(f"/agent-runs/{run_id}/report.json")
 
@@ -363,13 +367,16 @@ def test_json_report_contains_safe_complete_run_summary(client: TestClient) -> N
         "secret-token-value",
     ):
         assert forbidden not in serialized
+    for secret in fake_secret_samples["secrets"]:
+        assert secret not in serialized
 
 
 def test_markdown_report_has_expected_sections_and_truncation_notes(
     client: TestClient,
+    fake_secret_samples: dict[str, object],
 ) -> None:
     with TestingSessionLocal() as db:
-        run_id = create_report_run(db).id
+        run_id = create_report_run(db, secret_text=str(fake_secret_samples["text"])).id
 
     response = client.get(f"/agent-runs/{run_id}/report.md")
 
@@ -405,6 +412,8 @@ def test_markdown_report_has_expected_sections_and_truncation_notes(
     assert "GOLD_PATCH_MUST_NOT_APPEAR" not in response.text
     assert "HIDDEN_RESULT_COMMAND_MUST_NOT_APPEAR" not in response.text
     assert "secret-token-value" not in response.text
+    for secret in fake_secret_samples["secrets"]:
+        assert secret not in response.text
 
 
 @pytest.mark.parametrize("decision", ["approved", "rejected"])

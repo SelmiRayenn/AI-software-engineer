@@ -25,6 +25,7 @@ from app.agents.tools import (
     SubmittedPatchResult,
     TestCommandResult,
 )
+from app.core.redaction import is_sensitive_key
 from app.failures.categories import (
     FAILURE_MALFORMED_TOOL_CALL,
     FAILURE_MAX_STEPS_REACHED,
@@ -933,15 +934,7 @@ def _sanitize_for_log(value: Any) -> Any:
     if isinstance(value, dict):
         sanitized: dict[str, Any] = {}
         for key, nested in value.items():
-            normalized_key = key.lower().replace("-", "_")
-            if (
-                normalized_key in {"token", "access_token", "refresh_token", "auth_token"}
-                or "api_key" in normalized_key
-                or "apikey" in normalized_key
-                or "password" in normalized_key
-                or "secret" in normalized_key
-                or "authorization" in normalized_key
-            ):
+            if is_sensitive_key(key):
                 sanitized[key] = "[REDACTED]"
             elif key in {"content", "patch_text", "stdout", "stderr"} and isinstance(
                 nested,

@@ -1,6 +1,8 @@
 from uuid import UUID
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
+
+from app.core.redaction import redact_common_secrets, redact_structured_value
 
 
 class AnalyticsSummary(BaseModel):
@@ -30,12 +32,22 @@ class RepositoryAnalytics(AnalyticsSummary):
     repository_name: str
     repository_url: str
 
+    @field_validator("repository_owner", "repository_name", "repository_url", mode="before")
+    @classmethod
+    def redact_repository_text(cls, value: str) -> str:
+        return redact_common_secrets(value)
+
 
 class PackAnalytics(AnalyticsSummary):
     benchmark_pack_id: UUID
     pack_name: str
     pack_slug: str
     pack_version: str
+
+    @field_validator("pack_name", "pack_slug", "pack_version", mode="before")
+    @classmethod
+    def redact_pack_text(cls, value: str) -> str:
+        return redact_common_secrets(value)
 
 
 class ModelLeaderboardRow(BaseModel):
@@ -60,15 +72,30 @@ class ModelLeaderboardRow(BaseModel):
     rank_by_localization: int = 0
     composite_score: float
 
+    @field_validator("model_provider", "model_name", mode="before")
+    @classmethod
+    def redact_model_text(cls, value: str) -> str:
+        return redact_common_secrets(value)
+
 
 class ToolUsageCount(BaseModel):
     tool_name: str
     call_count: int
 
+    @field_validator("tool_name", mode="before")
+    @classmethod
+    def redact_tool_name(cls, value: str) -> str:
+        return redact_common_secrets(value)
+
 
 class ToolFailureCount(BaseModel):
     tool_name: str
     failed_count: int
+
+    @field_validator("tool_name", mode="before")
+    @classmethod
+    def redact_tool_name(cls, value: str) -> str:
+        return redact_common_secrets(value)
 
 
 class ToolErrorsByModel(BaseModel):
@@ -80,6 +107,11 @@ class ToolErrorsByModel(BaseModel):
     malformed_tool_calls: int
     tool_error_rate: float
     runs_with_tool_errors: int
+
+    @field_validator("model_provider", "model_name", mode="before")
+    @classmethod
+    def redact_model_text(cls, value: str) -> str:
+        return redact_common_secrets(value)
 
 
 class ToolUsageAnalytics(BaseModel):
@@ -96,10 +128,20 @@ class ToolUsageAnalytics(BaseModel):
     runs_with_tool_errors: int = 0
     tool_errors_by_model: list[ToolErrorsByModel] = Field(default_factory=list)
 
+    @field_validator("tool_error_counts_by_type", mode="before")
+    @classmethod
+    def redact_error_types(cls, value: dict[str, int]) -> dict[str, int]:
+        return redact_structured_value(value)
+
 
 class RepairFailureCount(BaseModel):
     category: str
     count: int
+
+    @field_validator("category", mode="before")
+    @classmethod
+    def redact_category(cls, value: str) -> str:
+        return redact_common_secrets(value)
 
 
 class RepairOutcomeMetricSet(BaseModel):
@@ -116,12 +158,22 @@ class RepairSuccessByModel(RepairOutcomeMetricSet):
     model_provider: str
     model_name: str
 
+    @field_validator("model_provider", "model_name", mode="before")
+    @classmethod
+    def redact_model_text(cls, value: str) -> str:
+        return redact_common_secrets(value)
+
 
 class RepairSuccessByRepository(RepairOutcomeMetricSet):
     repository_id: UUID
     repository_owner: str
     repository_name: str
     repository_url: str
+
+    @field_validator("repository_owner", "repository_name", "repository_url", mode="before")
+    @classmethod
+    def redact_repository_text(cls, value: str) -> str:
+        return redact_common_secrets(value)
 
 
 class RepairOutcomeAnalytics(RepairOutcomeMetricSet):
@@ -155,6 +207,11 @@ class CandidateHitRateByModel(BaseModel):
     runs_with_candidate_files: int
     candidate_hit_rate: float
 
+    @field_validator("model_provider", "model_name", mode="before")
+    @classmethod
+    def redact_model_text(cls, value: str) -> str:
+        return redact_common_secrets(value)
+
 
 class MissedGoldFile(BaseModel):
     repository_owner: str
@@ -164,10 +221,20 @@ class MissedGoldFile(BaseModel):
     gold_run_count: int
     miss_rate: float
 
+    @field_validator("repository_owner", "repository_name", "file_path", mode="before")
+    @classmethod
+    def redact_file_text(cls, value: str) -> str:
+        return redact_common_secrets(value)
+
 
 class LocalizationByModel(LocalizationMetricSet):
     model_provider: str
     model_name: str
+
+    @field_validator("model_provider", "model_name", mode="before")
+    @classmethod
+    def redact_model_text(cls, value: str) -> str:
+        return redact_common_secrets(value)
 
 
 class LocalizationByRepository(LocalizationMetricSet):
@@ -175,6 +242,11 @@ class LocalizationByRepository(LocalizationMetricSet):
     repository_owner: str
     repository_name: str
     repository_url: str
+
+    @field_validator("repository_owner", "repository_name", "repository_url", mode="before")
+    @classmethod
+    def redact_repository_text(cls, value: str) -> str:
+        return redact_common_secrets(value)
 
 
 class FileLocalizationAnalytics(LocalizationMetricSet):

@@ -14,6 +14,8 @@ GET /benchmark-pack-runs/{pack_run_id}/report.json
 GET /benchmark-pack-runs/{pack_run_id}/report.md
 GET /agent-runs/{run_id}/replay-snapshot
 GET /agent-runs/{run_id}/replay-snapshot?format=md
+GET /agent-runs/{run_id}/audit-log
+GET /patches/{patch_id}/audit-log
 ```
 
 Replay snapshots complement evaluation reports. Reports summarize review evidence; replay
@@ -39,7 +41,31 @@ curl -OJ http://localhost:8000/benchmark-pack-runs/00000000-0000-4000-8000-00000
 curl -OJ http://localhost:8000/benchmark-pack-runs/00000000-0000-4000-8000-000000000000/report.md
 curl http://localhost:8000/agent-runs/00000000-0000-4000-8000-000000000000/replay-snapshot
 curl -OJ "http://localhost:8000/agent-runs/00000000-0000-4000-8000-000000000000/replay-snapshot?format=md"
+curl http://localhost:8000/agent-runs/00000000-0000-4000-8000-000000000000/audit-log
+curl http://localhost:8000/patches/00000000-0000-4000-8000-000000000000/audit-log
 ```
+
+## Audit Logs
+
+Audit logs are sanitized JSON timelines for one agent run or generated patch. They record the
+benchmark-task reference, selected provider/model, sanitized run-configuration hash, model and tool
+activity, planning artifacts, patch versions/application, tests, repairs, metrics, failures, and
+human review decisions. Large payloads are represented by bounded summaries rather than copied into
+the audit record.
+
+Events are sorted by canonical UTC timestamp with deterministic tie-breaking. Each event hashes its
+own sanitized fields plus `previous_event_hash`; the first previous hash is null and the response's
+`final_audit_hash` is the last event hash. `exported_at` is deliberately excluded, allowing stable
+hashes for unchanged source records. The final hash is also sent as `ETag` and `X-Audit-Hash`.
+
+This is integrity evidence, not external signing. A later export can be compared with a retained
+final hash to detect source changes, but an attacker controlling the database and application could
+regenerate a valid chain. Production evidence should externally retain or sign final hashes.
+
+Audit logs never include patch bodies, file contents, test command streams, hidden-test definitions,
+or gold solution records. Hidden evaluation is represented only by phase, count, and pass/fail
+summaries. The centralized redactor runs before hashing so secrets neither appear in the export nor
+affect its public hash material.
 
 ## Report Contents
 

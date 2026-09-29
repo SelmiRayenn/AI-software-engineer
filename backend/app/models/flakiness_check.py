@@ -3,10 +3,21 @@ from __future__ import annotations
 import uuid
 from typing import TYPE_CHECKING
 
-from sqlalchemy import JSON, Boolean, Float, ForeignKey, Integer, String, Text, UniqueConstraint
+from sqlalchemy import (
+    JSON,
+    Boolean,
+    Float,
+    ForeignKey,
+    Integer,
+    String,
+    Text,
+    UniqueConstraint,
+    event,
+)
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from sqlalchemy.types import Uuid
 
+from app.core.redaction import redact_and_truncate, redact_structured_value
 from app.db.base import Base
 from app.models.mixins import CreatedAtMixin, UUIDPrimaryKeyMixin
 
@@ -68,3 +79,17 @@ class FlakinessCheckRun(UUIDPrimaryKeyMixin, CreatedAtMixin, Base):
     command_results: Mapped[list[dict]] = mapped_column(JSON, default=list, nullable=False)
 
     flakiness_check: Mapped["FlakinessCheck"] = relationship(back_populates="runs")
+
+
+@event.listens_for(FlakinessCheck, "before_insert")
+@event.listens_for(FlakinessCheck, "before_update")
+def redact_flakiness_check(_mapper: object, _connection: object, target: FlakinessCheck) -> None:
+    target.setup_results = redact_structured_value(target.setup_results)
+    if target.error_summary is not None:
+        target.error_summary = redact_and_truncate(target.error_summary, max_chars=8_000)
+
+
+@event.listens_for(FlakinessCheckRun, "before_insert")
+@event.listens_for(FlakinessCheckRun, "before_update")
+def redact_flakiness_run(_mapper: object, _connection: object, target: FlakinessCheckRun) -> None:
+    target.command_results = redact_structured_value(target.command_results)

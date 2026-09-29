@@ -1,7 +1,9 @@
 from datetime import datetime
 from uuid import UUID
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
+
+from app.core.redaction import redact_structured_value
 
 
 class TestFailureAnalysisRead(BaseModel):
@@ -22,3 +24,8 @@ class TestFailureAnalysisRead(BaseModel):
     failed_result_count: int = 1
     total_result_count: int = 1
     created_at: datetime | None = None
+
+    @model_validator(mode="before")
+    @classmethod
+    def redact_analysis(cls, value):
+        return redact_structured_value(value, max_string_chars=8_192)

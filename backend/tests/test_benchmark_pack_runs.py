@@ -189,6 +189,9 @@ class Workspaces:
         )
 
 
+pytestmark = pytest.mark.usefixtures("trusted_local_commands")
+
+
 @pytest.fixture()
 def db():
     engine = create_engine(

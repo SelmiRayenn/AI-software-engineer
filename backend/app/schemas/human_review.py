@@ -1,7 +1,9 @@
 from datetime import datetime
 from uuid import UUID
 
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, field_validator
+
+from app.core.redaction import redact_and_truncate
 
 
 class HumanReviewBase(BaseModel):
@@ -20,3 +22,8 @@ class HumanReviewRead(HumanReviewBase):
     reviewed_at: datetime
 
     model_config = ConfigDict(from_attributes=True)
+
+    @field_validator("reviewer_name", "review_notes", mode="before")
+    @classmethod
+    def redact_review_text(cls, value: str | None) -> str | None:
+        return redact_and_truncate(value, max_chars=8_000) if value is not None else None

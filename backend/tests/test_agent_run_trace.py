@@ -53,7 +53,7 @@ def client() -> TestClient:
     return TestClient(app)
 
 
-def create_run_with_trace(db: Session) -> AgentRun:
+def create_run_with_trace(db: Session, *, secret_text: str = "") -> AgentRun:
     repository = Repository(
         owner="example",
         name="trace",
@@ -104,6 +104,7 @@ def create_run_with_trace(db: Session) -> AgentRun:
             "api_key": "sk-123456789secret",
             "gold_patch": "EVENT_GOLD_SECRET",
             "output": "x" * 50_000,
+            "diagnostics": secret_text,
         },
     )
     earlier = AgentEvent(
@@ -199,9 +200,10 @@ def create_run_with_trace(db: Session) -> AgentRun:
 
 def test_trace_is_ordered_sanitized_and_includes_artifact_summaries(
     client: TestClient,
+    fake_secret_samples: dict[str, object],
 ) -> None:
     with TestingSessionLocal() as db:
-        run = create_run_with_trace(db)
+        run = create_run_with_trace(db, secret_text=str(fake_secret_samples["text"]))
         run_id = run.id
 
     response = client.get(f"/agent-runs/{run_id}/trace")
@@ -258,6 +260,9 @@ def test_trace_is_ordered_sanitized_and_includes_artifact_summaries(
     ]
     assert payload["failure"]["category"] == "post_patch_tests_failed"
     assert "[REDACTED]" in payload["failure"]["summary"]
+    serialized = json.dumps(payload)
+    for secret in fake_secret_samples["secrets"]:
+        assert secret not in serialized
     assert payload["metrics"]["file_localization_score"] == 0.5
     assert payload["metrics"]["regression_detected"] is True
 

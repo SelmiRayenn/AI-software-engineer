@@ -8,6 +8,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Self
 
+from docker.errors import DockerException
 from sqlalchemy.orm import Session
 
 from app import crud
@@ -45,6 +46,7 @@ from app.sandbox import (
     SandboxWorkspaceManager,
     SandboxWorkspaceSafetyError,
 )
+from app.sandbox.commands import DockerCommandSession
 from app.sandbox.workspace import SandboxWorkspaceMetadata
 from app.schemas.agent_run import (
     AgentRunConfig,
@@ -244,11 +246,14 @@ class AgentRunOrchestrator:
                 },
             )
 
-            with self._workspace_preparer.prepare(
-                repository_url=repository.url,
-                base_commit=task.base_commit,
-                command_timeout_seconds=request.command_timeout_seconds,
-            ) as workspace:
+            with (
+                self._workspace_preparer.prepare(
+                    repository_url=repository.url,
+                    base_commit=task.base_commit,
+                    command_timeout_seconds=request.command_timeout_seconds,
+                ) as workspace,
+                DockerCommandSession() as command_session,
+            ):
                 self._set_run_workspace(run, workspace)
                 self._log_event(
                     run,
@@ -259,6 +264,7 @@ class AgentRunOrchestrator:
                     },
                 )
                 tools = AgentWorkspaceTools(
+                    command_session=command_session,
                     db=self._db,
                     agent_run_id=run.id,
                     workspace_path=workspace.path,
@@ -267,6 +273,7 @@ class AgentRunOrchestrator:
                     trusted_file_guardrail_override=(run_config.trusted_file_guardrail_override),
                 )
                 test_executor = TestExecutionService(
+                    command_session=command_session,
                     db=self._db,
                     agent_run_id=run.id,
                     workspace_path=workspace.path,
@@ -356,6 +363,7 @@ class AgentRunOrchestrator:
             )
         except (
             AgentRunStartError,
+            DockerException,
             OSError,
             RuntimeError,
             ToolError,

@@ -193,6 +193,9 @@ class FreshWorkspacePreparer:
         return PreparedWorkspace(workspace_id=workspace.name, path=workspace)
 
 
+pytestmark = pytest.mark.usefixtures("trusted_local_commands")
+
+
 @pytest.fixture()
 def db() -> Generator[Session, None, None]:
     engine = create_engine(

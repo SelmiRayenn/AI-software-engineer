@@ -9,7 +9,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.agents.planning import latest_run_plan
-from app.agents.prompts import redact_prompt_text
+from app.core.redaction import is_sensitive_key, redact_common_secrets
 from app.models import AgentEvent, AgentRun, TestResult
 from app.schemas.run_trace import (
     AgentRunTraceEvent,
@@ -26,16 +26,6 @@ MAX_TRACE_OBJECT_KEYS = 100
 MAX_TRACE_DEPTH = 8
 MAX_TRACE_PAYLOAD_BYTES = 16_384
 
-_SENSITIVE_KEY_PARTS = (
-    "api_key",
-    "apikey",
-    "authorization",
-    "password",
-    "refresh_token",
-    "access_token",
-    "auth_token",
-    "secret",
-)
 _PROTECTED_KEY_PARTS = (
     "gold_patch",
     "gold_solution",
@@ -128,7 +118,12 @@ class AgentRunTraceService:
     def _event_read(self, event: AgentEvent) -> AgentRunTraceEvent:
         raw_payload = event.payload_json or {}
         hidden_context = _is_hidden_context(event.event_type, raw_payload)
-        sanitized = _sanitize_payload(raw_payload, hidden_context=hidden_context)
+        network_event = event.event_type == "sandbox_network_policy"
+        sanitized = (
+            _network_payload(raw_payload)
+            if network_event
+            else _sanitize_payload(raw_payload, hidden_context=hidden_context)
+        )
         return AgentRunTraceEvent(
             id=event.id,
             created_at=event.created_at,
@@ -136,7 +131,7 @@ class AgentRunTraceService:
             summary=_event_summary(event.event_type, sanitized),
             sanitized_payload=sanitized,
             tool_name=_tool_name(sanitized),
-            file_paths=[] if hidden_context else _extract_file_paths(raw_payload),
+            file_paths=[] if hidden_context or network_event else _extract_file_paths(raw_payload),
             severity=_event_severity(event.event_type, sanitized),
         )
 
@@ -167,6 +162,39 @@ class AgentRunTraceService:
                 grouped.items(), key=lambda item: (preferred_order.get(item[0], 99), item[0])
             )
         ]
+
+
+def _network_payload(payload: dict[str, Any]) -> dict[str, Any]:
+    # Fixed policy values only: hidden command text cannot hide in a reason/error field.
+    allowed = {
+        "phase": {
+            "setup",
+            "test",
+            "baseline",
+            "post_patch",
+            "hidden_eval",
+            "lint",
+            "format_check",
+            "flakiness",
+            "agent_test",
+        },
+        "requested_network_mode": {"none", "bridge"},
+        "effective_network_mode": {"none", "bridge"},
+        "reason": {
+            "explicit_setup_exception",
+            "explicit_test_exception",
+            "network_disabled",
+            "execution_blocked",
+        },
+        "error_code": {"network_mode_unsupported", "docker_unavailable", "sandbox_execution_error"},
+    }
+    result = {
+        key: value
+        for key, choices in allowed.items()
+        if isinstance(value := payload.get(key), str) and value in choices
+    }
+    result["network_exception"] = payload.get("network_exception") is True
+    return result
 
 
 def _sanitize_payload(payload: dict[str, Any], *, hidden_context: bool) -> dict[str, Any]:
@@ -240,7 +268,7 @@ def _bounded_text_value(value: Any) -> Any:
 
 
 def _safe_text(value: str) -> str:
-    return redact_prompt_text(value)
+    return redact_common_secrets(value)
 
 
 def _normalized_key(value: Any) -> str:
@@ -248,11 +276,7 @@ def _normalized_key(value: Any) -> str:
 
 
 def _is_sensitive_key(key: str) -> bool:
-    return (
-        key == "token"
-        or key.endswith("_token")
-        or any(part in key for part in _SENSITIVE_KEY_PARTS)
-    )
+    return is_sensitive_key(key)
 
 
 def _is_protected_key(key: str) -> bool:
@@ -312,6 +336,12 @@ def _safe_paths(paths: list[str]) -> list[str]:
 
 
 def _event_severity(event_type: str, payload: dict[str, Any]) -> str:
+    if event_type == "sandbox_network_policy":
+        return (
+            "error"
+            if payload.get("error_code")
+            else ("warning" if payload.get("network_exception") else "info")
+        )
     if event_type == "candidate_files_submitted":
         return "info"
     if event_type == "hypothesis_submitted":
@@ -334,6 +364,15 @@ def _event_severity(event_type: str, payload: dict[str, Any]) -> str:
 
 
 def _event_summary(event_type: str, payload: dict[str, Any]) -> str:
+    if event_type == "sandbox_network_policy":
+        phase = str(payload.get("phase", "command"))
+        mode = str(payload.get("effective_network_mode", "none"))
+        outcome = (
+            "blocked"
+            if payload.get("error_code")
+            else ("explicit exception" if payload.get("network_exception") else "disabled")
+        )
+        return f"Sandbox network {outcome}: {phase} ({mode})"
     if event_type == "candidate_files_submitted":
         ranked_files = payload.get("ranked_files")
         count = len(ranked_files) if isinstance(ranked_files, list) else 0

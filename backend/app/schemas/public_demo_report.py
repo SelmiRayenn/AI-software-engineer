@@ -1,26 +1,34 @@
 from datetime import datetime
 from uuid import UUID
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 
+from app.core.redaction import redact_structured_value
 from app.schemas.analytics import AnalyticsSummary, ModelLeaderboardRow
 
 
-class PublicDemoFilters(BaseModel):
+class _SafePublicModel(BaseModel):
+    @model_validator(mode="before")
+    @classmethod
+    def redact_public_fields(cls, value):
+        return redact_structured_value(value, max_string_chars=8_192)
+
+
+class PublicDemoFilters(_SafePublicModel):
     benchmark_pack_id: UUID | None = None
     model_provider: str | None = None
     model_name: str | None = None
     limit: int
 
 
-class PublicDemoPack(BaseModel):
+class PublicDemoPack(_SafePublicModel):
     id: UUID
     name: str
     slug: str
     version: str
 
 
-class PublicDemoUsageSummary(BaseModel):
+class PublicDemoUsageSummary(_SafePublicModel):
     total_tokens: int = 0
     total_estimated_cost: float = 0.0
     average_cost_per_run: float = 0.0
@@ -28,7 +36,7 @@ class PublicDemoUsageSummary(BaseModel):
     average_execution_time_seconds: float = 0.0
 
 
-class PublicDemoRun(BaseModel):
+class PublicDemoRun(_SafePublicModel):
     run_id: UUID
     benchmark_task_id: UUID
     repository_owner: str
@@ -57,7 +65,7 @@ class PublicDemoRun(BaseModel):
     completed_at: datetime | None = None
 
 
-class PublicDemoSnapshot(BaseModel):
+class PublicDemoSnapshot(_SafePublicModel):
     schema_version: str = "1.0"
     generated_at: datetime
     filters: PublicDemoFilters

@@ -106,12 +106,17 @@ def test_pytest_failure_parsing_and_persistence(db: Session, run_id: UUID) -> No
     )
 
 
-def test_generic_assertion_and_secret_redaction(db: Session, run_id: UUID) -> None:
+def test_generic_assertion_and_secret_redaction(
+    db: Session, run_id: UUID, fake_secret_samples: dict[str, object]
+) -> None:
     result = _failure(
         db,
         run_id,
         command="python check.py --api_key=command-secret",
-        stdout="AssertionError: expected enabled, got disabled api_key=output-secret",
+        stdout=(
+            "AssertionError: expected enabled, got disabled api_key=output-secret\n"
+            + str(fake_secret_samples["text"])
+        ),
     )
 
     analysis = AnalysisService(db, run_id).analyze_results([result])[0]
@@ -122,6 +127,8 @@ def test_generic_assertion_and_secret_redaction(db: Session, run_id: UUID) -> No
     assert "command-secret" not in serialized
     assert "output-secret" not in serialized
     assert "[REDACTED]" in serialized
+    for secret in fake_secret_samples["secrets"]:
+        assert secret not in serialized
 
 
 def test_timeout_detection(db: Session, run_id: UUID) -> None:

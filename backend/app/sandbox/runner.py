@@ -35,13 +35,16 @@ class DockerSandboxRunner:
         self._workspace_manager = workspace_manager or SandboxWorkspaceManager()
 
     def run(self, request: SandboxRunRequest) -> SandboxRunResponse:
+        from app.sandbox.commands import DockerCommandSession
+
         image = settings.sandbox_image
         command_timeout = self._command_timeout(request.command_timeout_seconds)
-        network_enabled = (
-            request.network_enabled
-            if request.network_enabled is not None
-            else settings.sandbox_network_enabled
+        requested_mode = (
+            "none"
+            if request.network_enabled is False
+            else request.network_mode or ("bridge" if request.network_enabled is True else None)
         )
+        network_enabled = False
 
         workspace = self._workspace_manager.create_workspace(prefix="sandbox")
         response: SandboxRunResponse | None = None
@@ -100,44 +103,25 @@ class DockerSandboxRunner:
                 )
                 return response
 
-            container = None
+            session = DockerCommandSession(requested_mode=requested_mode)
             setup_results: list[SandboxCommandResult] = []
             test_results: list[SandboxCommandResult] = []
 
             try:
-                client = self._docker_client()
-                self._ensure_image(client, image)
-                container = client.containers.create(
-                    image=image,
-                    command=["sh", "-lc", "while true; do sleep 3600; done"],
-                    name=f"agent-benchmark-sandbox-{workspace.workspace_id[:16]}",
-                    detach=True,
-                    privileged=False,
-                    network_disabled=not network_enabled,
-                    mem_limit=settings.sandbox_memory_limit,
-                    nano_cpus=int(settings.sandbox_cpu_limit * 1_000_000_000),
-                    pids_limit=settings.sandbox_pids_limit,
-                    security_opt=["no-new-privileges:true"],
-                    cap_drop=["ALL"],
-                    labels={
-                        "agent-benchmark.sandbox": "true",
-                        "agent-benchmark.workspace_id": workspace.workspace_id,
-                    },
-                )
-                container.start()
-                container.put_archive("/", self._repo_archive(workspace.repo_path))
-
                 for command in request.setup_commands:
-                    result = self._run_container_command(
-                        container=container,
+                    result = session.execute(
+                        workspace_path=workspace.repo_path,
                         command=command,
                         phase="setup",
                         timeout_seconds=command_timeout,
                     )
                     setup_results.append(result)
+                    network_enabled |= bool(
+                        result.network_policy and result.network_policy.network_exception
+                    )
                     if not result.passed:
                         response = self._response(
-                            status="setup_failed",
+                            status="sandbox_error" if result.error_code else "setup_failed",
                             workspace=workspace,
                             request=request,
                             image=image,
@@ -146,21 +130,28 @@ class DockerSandboxRunner:
                             clone_result=clone_result,
                             checkout_result=checkout_result,
                             setup_results=setup_results,
+                            error_code=result.error_code,
+                            error=result.stderr if result.error_code else None,
                         )
                         return response
 
                 stop_tests = False
                 for _ in range(request.test_repetitions):
                     for command in request.test_commands:
-                        result = self._run_container_command(
-                            container=container,
+                        result = session.execute(
+                            workspace_path=workspace.repo_path,
                             command=command,
                             phase="test",
                             timeout_seconds=command_timeout,
                         )
                         test_results.append(result)
-                        if result.timed_out or (
-                            request.stop_on_first_test_failure and not result.passed
+                        network_enabled |= bool(
+                            result.network_policy and result.network_policy.network_exception
+                        )
+                        if (
+                            result.error_code
+                            or result.timed_out
+                            or (request.stop_on_first_test_failure and not result.passed)
                         ):
                             stop_tests = True
                             break
@@ -170,8 +161,9 @@ class DockerSandboxRunner:
                 status = (
                     "passed" if all(result.passed for result in test_results) else "tests_failed"
                 )
+                failed_execution = next((item for item in test_results if item.error_code), None)
                 response = self._response(
-                    status=status,
+                    status="sandbox_error" if failed_execution else status,
                     workspace=workspace,
                     request=request,
                     image=image,
@@ -181,6 +173,8 @@ class DockerSandboxRunner:
                     checkout_result=checkout_result,
                     setup_results=setup_results,
                     test_results=test_results,
+                    error_code=failed_execution.error_code if failed_execution else None,
+                    error=failed_execution.stderr if failed_execution else None,
                 )
                 return response
             except DockerUnavailableError as exc:
@@ -216,11 +210,13 @@ class DockerSandboxRunner:
                 )
                 return response
             finally:
-                if container is not None:
-                    try:
-                        container.remove(force=True)
-                    except DockerException:
-                        pass
+                try:
+                    session.close()
+                except DockerException:
+                    if response is not None:
+                        response.cleanup_error = (
+                            "Docker container or temporary image cleanup failed."
+                        )
         finally:
             if response is not None:
                 try:
@@ -314,6 +310,7 @@ class DockerSandboxRunner:
         command: str,
         phase: str,
         timeout_seconds: int,
+        workdir: str = CONTAINER_REPO_DIR,
     ) -> SandboxCommandResult:
         start = time.monotonic()
         result_box: dict[str, Any] = {}
@@ -326,7 +323,7 @@ class DockerSandboxRunner:
                     stdout=True,
                     stderr=True,
                     demux=True,
-                    workdir=CONTAINER_REPO_DIR,
+                    workdir=workdir,
                 )
             except DockerException as exc:
                 error_box["error"] = exc
